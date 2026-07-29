@@ -206,11 +206,20 @@ class SchedulerSettings(BaseSettings):
     #: Hourly: news breaks continuously and the correlation engine wants it
     #: available before the next price ingestion runs.
     news_ingestion_cron: str = "5 * * * *"
+    #: 30 minutes after price ingestion. Features are a pure function of
+    #: prices, so they run once the batch that feeds them has settled.
+    feature_computation_cron: str = "0 23 * * mon-fri"
 
     #: A job that overruns its next trigger is skipped rather than queued, and
     #: never runs twice concurrently -- ingestion is idempotent, not reentrant.
     misfire_grace_seconds: Annotated[int, Field(ge=1)] = 600
     coalesce_missed_runs: bool = True
+
+    #: Liveness heartbeat. The scheduler rewrites this file on an interval and
+    #: the container healthcheck reads its age, which proves the event loop is
+    #: still dispatching -- something a process check cannot establish.
+    heartbeat_path: str = "/tmp/worker-heartbeat"  # noqa: S108
+    heartbeat_interval_seconds: Annotated[int, Field(ge=5)] = 30
 
 
 class ObservabilitySettings(BaseSettings):

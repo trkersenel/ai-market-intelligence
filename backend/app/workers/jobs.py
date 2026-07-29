@@ -24,7 +24,8 @@ from app.db.mongo import MongoDatabase
 from app.db.postgres import PostgresDatabase
 from app.repositories.company import CompanyRepository, TickerRepository
 from app.repositories.documents import NewsRepository
-from app.repositories.price import DailyPriceRepository
+from app.repositories.price import DailyPriceRepository, TechnicalIndicatorRepository
+from app.services.features import FeatureEngineeringService
 from app.services.ingestion import NewsIngestionService, PriceIngestionService
 
 logger = get_logger(__name__)
@@ -125,3 +126,31 @@ def _build_news_providers(settings: Settings) -> list[NewsProvider]:
     else:
         logger.info("newsapi_disabled", reason="INGEST_NEWSAPI_KEY is not set")
     return providers
+
+
+async def compute_features_job(context: JobContext) -> None:
+    """Recompute technical indicators from the stored price history.
+
+    Scheduled to run *after* price ingestion, not concurrently: features are a
+    pure function of prices, so computing them against a half-written batch
+    would produce values that the next run silently corrects. Sequencing them
+    means every stored indicator corresponds to a complete session.
+    """
+    log = logger.bind(job="compute_features")
+    try:
+        async with context.postgres.session() as session:
+            service = FeatureEngineeringService(
+                tickers=TickerRepository(session),
+                prices=DailyPriceRepository(session),
+                features=TechnicalIndicatorRepository(session),
+            )
+            report = await service.compute_all()
+
+        log.info(
+            "job_succeeded",
+            rows_written=report.rows_written,
+            failures=[failure.symbol for failure in report.failures],
+            duration_seconds=round(report.duration_seconds, 2),
+        )
+    except Exception:
+        log.exception("job_failed")

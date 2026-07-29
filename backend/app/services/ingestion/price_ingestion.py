@@ -168,7 +168,9 @@ class PriceIngestionService:
         if not bars:
             return TickerIngestionResult(symbol=listing.symbol, bars_written=0)
 
-        written = await self._prices.bulk_upsert([self._to_row(listing.id, bar) for bar in bars])
+        written = await self._prices.bulk_upsert(
+            [self._to_row(listing.id, bar, target_date) for bar in bars]
+        )
         await self._tickers.update_watermarks(
             listing.id,
             first_price_date=bars[0].trade_date,
@@ -196,11 +198,18 @@ class PriceIngestionService:
         return listing.last_price_date - timedelta(days=self._settings.incremental_overlap_days)
 
     @staticmethod
-    def _to_row(ticker_id: int, bar: PriceBar) -> dict[str, object]:
-        """Flatten a bar into the mapping the repository upserts."""
+    def _to_row(ticker_id: int, bar: PriceBar, target_date: date) -> dict[str, object]:
+        """Flatten a bar into the mapping the repository upserts.
+
+        A bar dated on the run date is marked provisional: the session may still
+        be trading, so its volume and close are partial. Whether the market has
+        actually closed is not knowable here without an exchange calendar, so
+        the conservative reading is taken and corrected on the next run.
+        """
         return {
             "ticker_id": ticker_id,
             "trade_date": bar.trade_date,
+            "is_provisional": bar.trade_date >= target_date,
             "open": bar.open,
             "high": bar.high,
             "low": bar.low,

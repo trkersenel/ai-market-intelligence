@@ -13,16 +13,17 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import companies, ingestion, news, prices
+from app.api.v1.endpoints import companies, indicators, ingestion, news, prices
 
 api_router = APIRouter()
 
 api_router.include_router(companies.router, prefix="/companies")
 api_router.include_router(companies.tickers_router, prefix="/tickers")
 api_router.include_router(prices.router, prefix="/prices")
+api_router.include_router(indicators.router, prefix="/indicators")
 api_router.include_router(news.router, prefix="/news")
 api_router.include_router(ingestion.router, prefix="/ingestion")
 
 # Routers added in later milestones:
-#   indicators, anomalies, market-summary, chat (RAG), watchlists,
+#   anomalies, market-summary, chat (RAG), watchlists,
 #   portfolios, auth

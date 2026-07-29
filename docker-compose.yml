@@ -102,11 +102,22 @@ services:
       - ./backend/app:/app/app:ro
     command: ["python", "-m", "app.workers"]
     healthcheck:
-      # The worker serves no HTTP; liveness is "the process is still running".
-      test: ["CMD-SHELL", "pgrep -f 'app.workers' > /dev/null || exit 1"]
+      # The worker serves no HTTP. It rewrites a heartbeat file from inside the
+      # scheduler, so a stale file means the event loop stopped dispatching --
+      # which a process check would never notice. Uses the image's own Python
+      # rather than pgrep, which the slim base does not ship.
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          import os, sys, time
+          p = "/tmp/worker-heartbeat"
+          sys.exit(0 if os.path.exists(p) and time.time() - os.path.getmtime(p) < 120 else 1)
       interval: 30s
       timeout: 5s
       retries: 3
+      start_period: 20s
 
 volumes:
   postgres_data:

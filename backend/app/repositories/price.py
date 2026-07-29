@@ -12,7 +12,7 @@ from collections.abc import Sequence
 from datetime import date
 from typing import Any
 
-from sqlalchemy import Row, func, select
+from sqlalchemy import Row, delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.models.company import Ticker
@@ -36,6 +36,9 @@ class DailyPriceRepository(BaseRepository[DailyPrice, int]):
         "adjusted_close",
         "volume",
         "source",
+        # Refreshed so yesterday's provisional bar is cleared when the next
+        # run re-fetches it as a completed session.
+        "is_provisional",
     )
 
     async def bulk_upsert(self, rows: Sequence[dict[str, Any]]) -> int:
@@ -94,19 +97,34 @@ class DailyPriceRepository(BaseRepository[DailyPrice, int]):
         )
         return result.scalar_one_or_none()
 
-    async def get_recent(self, ticker_id: int, *, sessions: int) -> Sequence[DailyPrice]:
+    async def get_recent(
+        self,
+        ticker_id: int,
+        *,
+        sessions: int | None = None,
+        completed_only: bool = False,
+    ) -> Sequence[DailyPrice]:
         """Return the last ``sessions`` bars for one ticker, oldest first.
 
-        The lookback window the feature and anomaly pipelines run on. Fetched in
-        descending order to use the index, then reversed in Python -- cheaper
-        than making PostgreSQL sort the result set again.
+        Args:
+            ticker_id: Listing to read.
+            sessions: How many recent bars to return; ``None`` returns the whole
+                stored history, which the feature pipeline needs when an
+                indicator definition changes and every row must be recomputed.
+            completed_only: Exclude the still-trading session. Statistics must
+                set this; a chart showing today's move must not.
+
+        Notes:
+            Fetched in descending order to use the index, then reversed in
+            Python -- cheaper than making PostgreSQL sort the result set again.
         """
-        result = await self._session.execute(
-            select(DailyPrice)
-            .where(DailyPrice.ticker_id == ticker_id)
-            .order_by(DailyPrice.trade_date.desc())
-            .limit(sessions)
-        )
+        statement = select(DailyPrice).where(DailyPrice.ticker_id == ticker_id)
+        if completed_only:
+            statement = statement.where(DailyPrice.is_provisional.is_(False))
+        statement = statement.order_by(DailyPrice.trade_date.desc())
+        if sessions is not None:
+            statement = statement.limit(sessions)
+        result = await self._session.execute(statement)
         return list(reversed(result.scalars().all()))
 
     async def get_cross_section(self, trade_date: date) -> Sequence[Row[tuple[str, DailyPrice]]]:
@@ -174,6 +192,26 @@ class TechnicalIndicatorRepository(BaseRepository[TechnicalIndicator, int]):
             set_={column: statement.excluded[column] for column in updatable},
         )
         return await self._execute_dml(statement)
+
+    async def delete_after(self, ticker_id: int, *, after: date) -> int:
+        """Delete indicator rows for sessions later than ``after``.
+
+        Returns:
+            The number of rows removed.
+
+        Notes:
+            Upserts can only correct rows a run actually writes. When a session
+            is reclassified -- a bar computed yesterday while trading, now
+            excluded as provisional -- the row it produced would otherwise
+            survive forever as the newest, wrong, answer. This is the sweep that
+            retires it.
+        """
+        return await self._execute_dml(
+            delete(TechnicalIndicator).where(
+                TechnicalIndicator.ticker_id == ticker_id,
+                TechnicalIndicator.trade_date > after,
+            )
+        )
 
     async def get_latest(self, ticker_id: int) -> TechnicalIndicator | None:
         """Return the most recently computed feature row for one ticker."""

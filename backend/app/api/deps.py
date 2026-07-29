@@ -34,6 +34,7 @@ from app.repositories import (
     WatchlistRepository,
 )
 from app.repositories.documents import NewsRepository
+from app.services.features import FeatureEngineeringService
 from app.services.health_service import HealthService
 from app.services.ingestion import PriceIngestionService
 
@@ -143,12 +144,25 @@ def get_price_ingestion_service(
     )
 
 
+def get_feature_service(
+    tickers: Annotated[TickerRepository, Depends(repository_provider(TickerRepository))],
+    prices: Annotated[DailyPriceRepository, Depends(repository_provider(DailyPriceRepository))],
+    features: Annotated[
+        TechnicalIndicatorRepository,
+        Depends(repository_provider(TechnicalIndicatorRepository)),
+    ],
+) -> FeatureEngineeringService:
+    """Assemble the feature engineering service for on-demand API triggers."""
+    return FeatureEngineeringService(tickers=tickers, prices=prices, features=features)
+
+
 SettingsDep = Annotated[Settings, Depends(get_app_settings)]
 SessionDep = Annotated[AsyncSession, Depends(get_db_session)]
 MongoDep = Annotated[MongoDatabase, Depends(get_mongo)]
 HealthServiceDep = Annotated[HealthService, Depends(get_health_service)]
 NewsRepoDep = Annotated[NewsRepository, Depends(get_news_repository)]
 PriceIngestionDep = Annotated[PriceIngestionService, Depends(get_price_ingestion_service)]
+FeatureServiceDep = Annotated[FeatureEngineeringService, Depends(get_feature_service)]
 
 # Repository dependencies. Endpoints and services annotate with these aliases
 # rather than constructing repositories, so a test can swap any one of them for

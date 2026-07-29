@@ -294,6 +294,36 @@ class TestPriceIngestionOutcomes:
         assert [failure.symbol for failure in report.failures] == ["BROKEN"]
         assert len(report.results) == 3
 
+    async def test_the_current_session_is_marked_provisional(self) -> None:
+        """A bar dated today may still be trading; its OHLCV is partial."""
+        tickers = FakeTickerRepository([FakeTicker(1, "NVDA")])
+        prices = FakePriceRepository()
+        bars = [_bar(date(2026, 7, 28)), _bar(TODAY)]
+        provider = FakePriceProvider({"NVDA": bars})
+
+        await _service(provider, tickers, prices).ingest_all(as_of=TODAY)
+
+        by_date = {row["trade_date"]: row["is_provisional"] for row in prices.rows}
+        assert by_date[date(2026, 7, 28)] is False
+        assert by_date[TODAY] is True
+
+    async def test_the_flag_clears_once_the_session_has_closed(self) -> None:
+        """Self-healing: tomorrow's overlapping window rewrites today's bar.
+
+        This is the property that makes the conservative marking safe -- no
+        separate reconciliation job is needed to clear a stale flag.
+        """
+        tickers = FakeTickerRepository([FakeTicker(1, "NVDA")])
+        prices = FakePriceRepository()
+        provider = FakePriceProvider({"NVDA": [_bar(TODAY)]})
+
+        # Run again the next day, when TODAY is a completed session.
+        tomorrow = TODAY + timedelta(days=1)
+        await _service(provider, tickers, prices).ingest_all(as_of=tomorrow)
+
+        assert prices.rows[-1]["trade_date"] == TODAY
+        assert prices.rows[-1]["is_provisional"] is False
+
     async def test_a_quiet_symbol_is_not_an_error(self) -> None:
         """An empty window -- a holiday week -- must not be reported as failure."""
         tickers = FakeTickerRepository([FakeTicker(1, "QUIET")])

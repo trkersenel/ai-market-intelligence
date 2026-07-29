@@ -154,6 +154,60 @@ class TickerQuote(BaseModel):
         return (self.close - self.previous_close) / self.previous_close * 100
 
 
+class IndicatorSnapshot(BaseModel):
+    """Every computed feature for one listing on one session.
+
+    Fields are optional because an indicator is genuinely undefined during its
+    warm-up: a listing with 30 sessions of history has an SMA-20 and no SMA-200.
+    Returning ``null`` says so; returning 0 would be a lie the frontend would
+    happily chart.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    trade_date: date
+
+    daily_return: Decimal | None = None
+    weekly_return: Decimal | None = None
+    monthly_return: Decimal | None = None
+
+    sma_20: Decimal | None = None
+    sma_50: Decimal | None = None
+    sma_200: Decimal | None = None
+    ema_12: Decimal | None = None
+    ema_26: Decimal | None = None
+
+    rsi_14: Decimal | None = None
+    macd: Decimal | None = None
+    macd_signal: Decimal | None = None
+    macd_histogram: Decimal | None = None
+
+    bollinger_upper: Decimal | None = None
+    bollinger_middle: Decimal | None = None
+    bollinger_lower: Decimal | None = None
+    atr_14: Decimal | None = None
+    volatility_20: Decimal | None = None
+
+    volume_sma_20: Decimal | None = None
+    volume_ratio: Decimal | None = None
+    relative_strength_smh: Decimal | None = None
+
+
+class IndicatorSeries(BaseModel):
+    """A listing's indicators over a window."""
+
+    symbol: str
+    start: date | None
+    end: date | None
+    rows: list[IndicatorSnapshot]
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def count(self) -> int:
+        """Number of sessions returned."""
+        return len(self.rows)
+
+
 class NewsArticleResponse(BaseModel):
     """A news article as returned by the API, without the raw body."""
 

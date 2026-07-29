@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     ForeignKey,
     Index,
@@ -63,6 +64,27 @@ class DailyPrice(IntIdMixin, TimestampMixin, Base):
     source: Mapped[DataSource] = mapped_column(
         pg_enum(DataSource, "data_source"),
         default=DataSource.YFINANCE,
+    )
+
+    #: True while the session is still trading. Vendors return the current day's
+    #: bar mid-session, so its volume and close are partial -- NVIDIA showing
+    #: 16M shares against a 130M average is an incomplete day, not a collapse in
+    #: participation. Statistics must never be derived from such a bar: it would
+    #: register as a volume anomaly every single day the market is open.
+    #:
+    #: Self-correcting by design: the next run's overlapping window re-fetches
+    #: the same session, now dated in the past, and the upsert clears the flag.
+    #:
+    #: Deliberately unindexed. At most one row per ticker is ever true, so a
+    #: btree here could never be selective. Every query filtering on it also
+    #: carries a ``ticker_id`` predicate, already served by the unique
+    #: constraint's index; the boolean is a cheap recheck on the rows that
+    #: index has already located.
+    is_provisional: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default="false",
+        comment="True while the session is still trading; its OHLCV is partial.",
     )
 
     ticker: Mapped[Ticker] = relationship(back_populates="prices", lazy="raise_on_sql")

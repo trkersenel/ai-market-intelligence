@@ -21,13 +21,21 @@ import asyncio
 import signal
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 
 from app.core.config import Settings, get_settings
 from app.core.logging import configure_logging, get_logger
-from app.workers.jobs import JobContext, ingest_news_job, ingest_prices_job
+from app.workers.jobs import (
+    JobContext,
+    compute_features_job,
+    ingest_news_job,
+    ingest_prices_job,
+)
 
 logger = get_logger(__name__)
 
@@ -63,10 +71,47 @@ def build_scheduler(settings: Settings, context: JobContext) -> AsyncIOScheduler
     schedule = (
         JobSpec("ingest_prices", ingest_prices_job, settings.scheduler.price_ingestion_cron),
         JobSpec("ingest_news", ingest_news_job, settings.scheduler.news_ingestion_cron),
+        # Deliberately 30 minutes after price ingestion: features are derived
+        # from prices, so they must not race the batch that produces them.
+        JobSpec(
+            "compute_features",
+            compute_features_job,
+            settings.scheduler.feature_computation_cron,
+        ),
     )
     for spec in schedule:
         _register(scheduler, spec, context, timezone=settings.scheduler.timezone)
+
+    _register_heartbeat(scheduler, settings)
     return scheduler
+
+
+def _register_heartbeat(scheduler: AsyncIOScheduler, settings: Settings) -> None:
+    """Register the liveness heartbeat.
+
+    The worker serves no HTTP, so "is it alive?" has to be answered some other
+    way. Checking that the *process* exists is not enough: a scheduler whose
+    event loop has wedged still has a running process, and would pass such a
+    check forever while running nothing.
+
+    Writing a file from inside the scheduler proves the loop is still
+    dispatching jobs. The container healthcheck then only has to look at the
+    file's age -- no extra packages in the runtime image.
+    """
+    path = Path(settings.scheduler.heartbeat_path)
+
+    def touch_heartbeat() -> None:
+        path.write_text(datetime.now(UTC).isoformat())
+
+    scheduler.add_job(
+        touch_heartbeat,
+        trigger=IntervalTrigger(seconds=settings.scheduler.heartbeat_interval_seconds),
+        id="heartbeat",
+        name="heartbeat",
+        replace_existing=True,
+        next_run_time=datetime.now(UTC),  # write once immediately, not after a full interval
+    )
+    logger.info("heartbeat_registered", path=str(path))
 
 
 @dataclass(frozen=True)
