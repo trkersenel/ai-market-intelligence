@@ -1,0 +1,164 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "market-intel-backend"
+version = "0.1.0"
+description = "AI Market Intelligence Platform - FastAPI backend"
+requires-python = ">=3.12,<3.14"
+license = { text = "MIT" }
+
+dependencies = [
+    # --- Web framework -----------------------------------------------------
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "pydantic>=2.9.0",
+    "pydantic-settings>=2.6.0",
+    "orjson>=3.10.0",
+    # --- PostgreSQL --------------------------------------------------------
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30.0",
+    "psycopg[binary]>=3.2.0",   # sync driver, used by Alembic only
+    "alembic>=1.14.0",
+    # --- MongoDB -----------------------------------------------------------
+    "motor>=3.6.0",
+    "pymongo>=4.9.0",
+    # --- Observability & resilience ----------------------------------------
+    "structlog>=24.4.0",
+    "tenacity>=9.0.0",
+    "httpx>=0.27.0",
+    # --- Data ingestion ----------------------------------------------------
+    "yfinance>=0.2.50",     # blocking; always called via asyncio.to_thread
+    "feedparser>=6.0.11",
+    "apscheduler>=3.10.4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0.0",
+    "ruff>=0.8.0",
+    "mypy>=1.13.0",
+    "pre-commit>=4.0.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+# ---------------------------------------------------------------------------
+# Linting & formatting
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["."]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",    # pycodestyle
+    "F",         # pyflakes
+    "I",         # isort
+    "N",         # pep8-naming
+    "UP",        # pyupgrade
+    "B",         # flake8-bugbear
+    "C4",        # comprehensions
+    "SIM",       # simplify
+    "TID",       # tidy imports
+    "RUF",       # ruff-specific
+    "ANN",       # type annotations
+    "D",         # docstrings
+    "ASYNC",     # async correctness
+    "S",         # bandit security rules
+    "BLE",       # blind except
+    "PL",        # pylint subset
+]
+ignore = [
+    "D203",   # conflicts with D211
+    "D213",   # conflicts with D212
+    "ANN401", # allow `Any` in deliberately generic helpers
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Asserts, terse test names and literal fixture credentials are expected in
+# tests. `SLF001` allows asserting on protected helpers that carry real logic.
+"tests/*" = [
+    "S101",
+    "S105",
+    "S106",
+    "D102",
+    "D103",
+    "D107",
+    "ANN201",
+    "PLR2004",
+    "SLF001",
+]
+"alembic/*" = ["D", "ANN", "INP001"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.pylint]
+# Constructors that take many *keyword-only* arguments are the readable form for
+# a configurable adapter such as HttpClient -- every call site names what it
+# passes. Collapsing them into a config object to satisfy the default of 5 would
+# add indirection without adding clarity.
+max-args = 8
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "tests"]
+# The local `alembic/` migration directory otherwise shadows the installed
+# package and makes isort classify `from alembic import op` as first-party.
+known-third-party = ["alembic"]
+
+# ---------------------------------------------------------------------------
+# Type checking
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+plugins = ["pydantic.mypy"]
+exclude = ["alembic/versions/"]
+
+# Third-party packages that ship no type information. Each is confined to a
+# single adapter module, which is exactly why the adapters exist: the
+# untyped surface stops at the boundary and the rest of the codebase stays
+# strictly typed.
+[[tool.mypy.overrides]]
+module = [
+    "motor.*",
+    "yfinance.*",
+    "feedparser.*",
+    "apscheduler.*",
+]
+ignore_missing_imports = true
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+# Session scope for both: the integration suite shares one engine (and one
+# connection pool) across the whole run, and a fixture may only be shared by
+# tests running on the same event loop. Function scope would rebuild the schema
+# for every test.
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+addopts = "-ra --strict-markers --strict-config"
+markers = [
+    "integration: requires live PostgreSQL and MongoDB instances",
+]
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["app/main.py", "alembic/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true

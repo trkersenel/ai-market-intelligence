@@ -1,0 +1,43 @@
+{
+  "status": "ok",
+  "totalResults": 4,
+  "_note": "Recorded response shape, awkward cases retained deliberately.",
+  "articles": [
+    {
+      "source": { "id": "reuters", "name": "Reuters" },
+      "author": "Jane Doe",
+      "title": "Micron raises HBM output guidance as AI memory demand accelerates",
+      "description": "Micron said high-bandwidth memory capacity is sold out through next year.",
+      "url": "https://www.reuters.com/technology/micron-hbm-guidance-2026-07-28/",
+      "publishedAt": "2026-07-28T13:05:00Z",
+      "content": "Micron Technology raised its HBM revenue outlook, citing sustained DRAM pricing strength and sold-out capacity."
+    },
+    {
+      "source": { "id": null, "name": "Bloomberg" },
+      "author": null,
+      "title": "TSMC expands CoWoS advanced packaging capacity again",
+      "description": "The foundry is adding capacity for AI accelerator packaging.",
+      "url": "https://www.bloomberg.com/news/tsmc-cowos-expansion",
+      "publishedAt": "2026-07-28T09:30:00Z",
+      "content": "TSMC will expand CoWoS advanced packaging output, easing a constraint on NVIDIA GPU supply."
+    },
+    {
+      "source": { "id": null, "name": "Removed" },
+      "author": null,
+      "title": "[Removed]",
+      "description": "[Removed]",
+      "url": "https://removed.example.com/1",
+      "publishedAt": "2026-07-28T08:00:00Z",
+      "content": "[Removed]"
+    },
+    {
+      "source": { "id": null, "name": "Lifestyle Weekly" },
+      "author": "Someone",
+      "title": "Ten houseplants that thrive in low light",
+      "description": "Gardening tips for small apartments.",
+      "url": "https://lifestyle.example.com/houseplants",
+      "publishedAt": "2026-07-28T07:00:00Z",
+      "content": "Pothos and snake plants tolerate shade well."
+    }
+  ]
+}

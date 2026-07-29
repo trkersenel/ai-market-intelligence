@@ -1,0 +1,124 @@
+# Continuous integration.
+#
+# Quality gates run as separate jobs so a failure names the actual problem
+# ("types" vs "tests") instead of a single opaque red X. The Docker build only
+# runs after every gate passes, so no broken image is ever produced.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+
+defaults:
+  run:
+    working-directory: backend
+
+jobs:
+  lint:
+    name: Lint & format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - run: ruff check --output-format=github .
+      - run: ruff format --check .
+
+  typecheck:
+    name: Static types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - run: mypy app
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: market_intel_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      mongo:
+        image: mongo:7
+        ports: ["27017:27017"]
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ping:1})'"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      ENVIRONMENT: test
+      POSTGRES_HOST: localhost
+      POSTGRES_DB: market_intel_test
+      MONGO_URI: mongodb://localhost:27017
+      SECURITY_SECRET_KEY: ci-only-secret-key
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - name: Apply migrations
+        run: alembic upgrade head
+      - name: Fail if models have drifted from migrations
+        # Catches the common mistake of editing a model without generating the
+        # matching migration -- which passes every test and breaks on deploy.
+        run: alembic check
+      - name: Run test suite
+        run: pytest --cov --cov-report=xml --cov-report=term-missing
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage
+          path: backend/coverage.xml
+
+  docker:
+    name: Docker image
+    needs: [lint, typecheck, test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: false
+          load: true
+          tags: market-intel-api:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke-test the image starts and answers liveness
+        run: |
+          docker run -d --name api -p 8000:8000 \
+            -e SECURITY_SECRET_KEY=ci-only-secret-key \
+            market-intel-api:${{ github.sha }}
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8000/health/live; then exit 0; fi
+            sleep 2
+          done
+          echo "API failed to become live"; docker logs api; exit 1

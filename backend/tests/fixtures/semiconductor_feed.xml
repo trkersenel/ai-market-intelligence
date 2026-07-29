@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Semiconductor Engineering</title>
+    <link>https://semiengineering.com</link>
+    <description>Semiconductor design and manufacturing</description>
+    <item>
+      <title>SK Hynix begins HBM4 sampling ahead of schedule</title>
+      <link>https://semiengineering.com/sk-hynix-hbm4-sampling/</link>
+      <description>The memory maker says HBM4 samples shipped to lead customers this quarter.</description>
+      <author>editor@semiengineering.com</author>
+      <pubDate>Tue, 28 Jul 2026 11:00:00 +0000</pubDate>
+    </item>
+    <item>
+      <title>ASML books record High-NA EUV orders</title>
+      <link>https://semiengineering.com/asml-high-na-orders/</link>
+      <description>Lithography bookings point to foundry capacity expansion in 2028.</description>
+      <pubDate>Mon, 27 Jul 2026 15:30:00 +0000</pubDate>
+    </item>
+    <item>
+      <title>A retrospective on 1990s home computing</title>
+      <link>https://semiengineering.com/retro-computing/</link>
+      <description>Nostalgia piece with no bearing on current markets.</description>
+      <pubDate>Sun, 26 Jul 2026 08:00:00 +0000</pubDate>
+    </item>
+    <item>
+      <title>Stale item published long before the ingestion window</title>
+      <link>https://semiengineering.com/stale-dram-item/</link>
+      <description>DRAM pricing commentary from an earlier cycle.</description>
+      <pubDate>Fri, 03 Jan 2020 10:00:00 +0000</pubDate>
+    </item>
+  </channel>
+</rss>
