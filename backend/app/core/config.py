@@ -193,6 +193,30 @@ class IngestionSettings(BaseSettings):
         return [feed.strip() for feed in stripped.split(",") if feed.strip()]
 
 
+class AnalysisSettings(BaseSettings):
+    """Sentiment and anomaly-detection parameters."""
+
+    model_config = SettingsConfigDict(env_prefix="ANALYSIS_", extra="ignore")
+
+    #: Use FinBERT when torch and transformers are installed. Off by default: a
+    #: platform that silently requires a 2GB download to start is a platform
+    #: that does not start. Falls back to the lexicon analyser with a log line.
+    use_finbert: bool = False
+    finbert_model_id: str = "ProsusAI/finbert"
+    sentiment_batch_size: Annotated[int, Field(ge=1, le=128)] = 16
+
+    #: Robust deviations beyond which a session is reported. 3.0 keeps expected
+    #: false positives near 29 a year across the tracked universe; see
+    #: DEFAULT_Z_THRESHOLD for the arithmetic behind the choice.
+    z_score_threshold: Annotated[float, Field(gt=0)] = 3.0
+    #: Expected outlier fraction for Isolation Forest. Fixed rather than 'auto'
+    #: so the threshold does not drift as history accumulates.
+    isolation_forest_contamination: Annotated[float, Field(gt=0, lt=0.5)] = 0.02
+    #: Sessions each detection run reports on. The baseline is always the full
+    #: loaded history regardless of this.
+    anomaly_lookback_sessions: Annotated[int, Field(ge=1)] = 30
+
+
 class SchedulerSettings(BaseSettings):
     """Cron expressions for the background ingestion jobs."""
 
@@ -209,6 +233,10 @@ class SchedulerSettings(BaseSettings):
     #: 30 minutes after price ingestion. Features are a pure function of
     #: prices, so they run once the batch that feeds them has settled.
     feature_computation_cron: str = "0 23 * * mon-fri"
+    #: After features, for the same reason features run after prices.
+    anomaly_detection_cron: str = "20 23 * * mon-fri"
+    #: Hourly, offset from news ingestion so scoring sees a settled batch.
+    sentiment_scoring_cron: str = "25 * * * *"
 
     #: A job that overruns its next trigger is skipped rather than queued, and
     #: never runs twice concurrently -- ingestion is idempotent, not reentrant.
@@ -272,6 +300,7 @@ class Settings(BaseSettings):
     security: SecuritySettings = Field(default_factory=SecuritySettings)
     observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
     ingestion: IngestionSettings = Field(default_factory=IngestionSettings)
+    analysis: AnalysisSettings = Field(default_factory=AnalysisSettings)
     scheduler: SchedulerSettings = Field(default_factory=SchedulerSettings)
 
     @field_validator("cors_origins", mode="before")

@@ -32,9 +32,19 @@ dependencies = [
     "yfinance>=0.2.50",     # blocking; always called via asyncio.to_thread
     "feedparser>=6.0.11",
     "apscheduler>=3.10.4",
+    # --- Machine learning --------------------------------------------------
+    "scikit-learn>=1.5",    # Isolation Forest
+    "numpy>=1.26",
 ]
 
 [project.optional-dependencies]
+# FinBERT. Kept optional because torch is ~2GB and only the worker needs it;
+# the platform falls back to lexicon sentiment when it is absent, so a
+# missing install degrades one column rather than breaking startup.
+ml = [
+    "torch>=2.4",
+    "transformers>=4.44",
+]
 dev = [
     "pytest>=8.3.0",
     "pytest-asyncio>=0.24.0",
@@ -93,6 +103,9 @@ ignore = [
     "ANN201",
     "PLR2004",
     "SLF001",
+    # Seeded `random` generates deterministic synthetic price series; the
+    # cryptographic warning does not apply to test fixtures.
+    "S311",
 ]
 "alembic/*" = ["D", "ANN", "INP001"]
 
@@ -135,6 +148,9 @@ module = [
     "yfinance.*",
     "feedparser.*",
     "apscheduler.*",
+    "sklearn.*",
+    "torch.*",
+    "transformers.*",
 ]
 ignore_missing_imports = true
 

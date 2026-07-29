@@ -141,6 +141,31 @@ class DailyPriceRepository(BaseRepository[DailyPrice, int]):
         )
         return result.all()
 
+    async def get_sessions_by_exchange(self) -> Sequence[tuple[str, date]]:
+        """Return every distinct ``(exchange, session)`` pair observed.
+
+        The input to calendar reconstruction. Provisional bars are excluded: a
+        session that is still trading has not yet happened in full, and marking
+        it closed-or-open on partial evidence is what the flag exists to prevent.
+
+        Aggregated in the database rather than by loading bars and grouping in
+        Python -- this is one DISTINCT over an indexed column against millions
+        of rows.
+        """
+        result = await self._session.execute(
+            select(Ticker.exchange, DailyPrice.trade_date)
+            .join(DailyPrice, DailyPrice.ticker_id == Ticker.id)
+            .where(
+                Ticker.exchange.is_not(None),
+                DailyPrice.is_provisional.is_(False),
+            )
+            .distinct()
+        )
+        # `exchange` is nullable on the model but excluded by the WHERE clause
+        # above, so the rows are rebuilt as plain tuples with the narrower type
+        # rather than pushed to callers as `str | None`.
+        return [(exchange, session) for exchange, session in result.all()]
+
     async def get_date_bounds(self, ticker_id: int) -> tuple[date, date] | None:
         """Return the oldest and newest session stored for one ticker.
 
@@ -212,6 +237,19 @@ class TechnicalIndicatorRepository(BaseRepository[TechnicalIndicator, int]):
                 TechnicalIndicator.trade_date > after,
             )
         )
+
+    async def get_recent(self, ticker_id: int, *, sessions: int) -> Sequence[TechnicalIndicator]:
+        """Return the last ``sessions`` feature rows for one ticker, oldest first.
+
+        The baseline window the anomaly detectors establish "normal" from.
+        """
+        result = await self._session.execute(
+            select(TechnicalIndicator)
+            .where(TechnicalIndicator.ticker_id == ticker_id)
+            .order_by(TechnicalIndicator.trade_date.desc())
+            .limit(sessions)
+        )
+        return list(reversed(result.scalars().all()))
 
     async def get_latest(self, ticker_id: int) -> TechnicalIndicator | None:
         """Return the most recently computed feature row for one ticker."""

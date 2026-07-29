@@ -22,11 +22,21 @@ from app.core.config import Settings
 from app.core.logging import get_logger
 from app.db.mongo import MongoDatabase
 from app.db.postgres import PostgresDatabase
+from app.repositories.anomaly import AnomalyRepository
 from app.repositories.company import CompanyRepository, TickerRepository
 from app.repositories.documents import NewsRepository
+from app.repositories.market import MarketCalendarRepository
 from app.repositories.price import DailyPriceRepository, TechnicalIndicatorRepository
+from app.services.anomalies import AnomalyDetectionService
+from app.services.anomalies.detectors import (
+    IsolationForestDetector,
+    ZScoreDetector,
+)
 from app.services.features import FeatureEngineeringService
 from app.services.ingestion import NewsIngestionService, PriceIngestionService
+from app.services.market_calendar_service import MarketCalendarService
+from app.services.sentiment import build_analyzer
+from app.services.sentiment_service import SentimentScoringService
 
 logger = get_logger(__name__)
 
@@ -152,5 +162,72 @@ async def compute_features_job(context: JobContext) -> None:
             failures=[failure.symbol for failure in report.failures],
             duration_seconds=round(report.duration_seconds, 2),
         )
+    except Exception:
+        log.exception("job_failed")
+
+
+async def detect_anomalies_job(context: JobContext) -> None:
+    """Rebuild the exchange calendar, then run both anomaly detectors.
+
+    The calendar is rebuilt first and in the same job, because detection depends
+    on it: without knowing which sessions the market was open, a holiday reads as
+    a collapse in trading activity. Running them as separate scheduled jobs would
+    let detection fire against a stale calendar the one time it matters -- the
+    session after a new holiday.
+    """
+    log = logger.bind(job="detect_anomalies")
+    analysis = context.settings.analysis
+    try:
+        async with context.postgres.session() as session:
+            calendar = MarketCalendarService(
+                prices=DailyPriceRepository(session),
+                calendar=MarketCalendarRepository(session),
+            )
+            calendar_report = await calendar.rebuild()
+
+            service = AnomalyDetectionService(
+                tickers=TickerRepository(session),
+                indicators=TechnicalIndicatorRepository(session),
+                anomalies=AnomalyRepository(session),
+                calendar=MarketCalendarRepository(session),
+                z_score=ZScoreDetector(threshold=analysis.z_score_threshold),
+                isolation_forest=IsolationForestDetector(
+                    contamination=analysis.isolation_forest_contamination
+                ),
+                lookback_sessions=analysis.anomaly_lookback_sessions,
+            )
+            report = await service.detect_all()
+
+        log.info(
+            "job_succeeded",
+            calendar_sessions=calendar_report.trading_days,
+            detections=report.detections,
+            failures=[failure.symbol for failure in report.failures],
+            duration_seconds=round(report.duration_seconds, 2),
+        )
+    except Exception:
+        log.exception("job_failed")
+
+
+async def score_sentiment_job(context: JobContext) -> None:
+    """Score any recent article that has no sentiment yet."""
+    log = logger.bind(job="score_sentiment")
+    analysis = context.settings.analysis
+    try:
+        service = SentimentScoringService(
+            analyzer=build_analyzer(prefer_finbert=analysis.use_finbert),
+            news=NewsRepository(context.mongo),
+        )
+        report = await service.score_pending()
+
+        if report.succeeded:
+            log.info(
+                "job_succeeded",
+                scored=report.scored,
+                model=report.model_name,
+                duration_seconds=round(report.duration_seconds, 2),
+            )
+        else:
+            log.error("job_failed", error=report.error)
     except Exception:
         log.exception("job_failed")

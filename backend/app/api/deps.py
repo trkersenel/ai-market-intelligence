@@ -34,6 +34,8 @@ from app.repositories import (
     WatchlistRepository,
 )
 from app.repositories.documents import NewsRepository
+from app.services.anomalies import AnomalyDetectionService
+from app.services.anomalies.detectors import IsolationForestDetector, ZScoreDetector
 from app.services.features import FeatureEngineeringService
 from app.services.health_service import HealthService
 from app.services.ingestion import PriceIngestionService
@@ -156,6 +158,33 @@ def get_feature_service(
     return FeatureEngineeringService(tickers=tickers, prices=prices, features=features)
 
 
+def get_anomaly_service(
+    tickers: Annotated[TickerRepository, Depends(repository_provider(TickerRepository))],
+    indicators: Annotated[
+        TechnicalIndicatorRepository,
+        Depends(repository_provider(TechnicalIndicatorRepository)),
+    ],
+    anomalies: Annotated[AnomalyRepository, Depends(repository_provider(AnomalyRepository))],
+    calendar: Annotated[
+        MarketCalendarRepository, Depends(repository_provider(MarketCalendarRepository))
+    ],
+    settings: Annotated[Settings, Depends(get_app_settings)],
+) -> AnomalyDetectionService:
+    """Assemble the anomaly detection service with configured thresholds."""
+    analysis = settings.analysis
+    return AnomalyDetectionService(
+        tickers=tickers,
+        indicators=indicators,
+        anomalies=anomalies,
+        calendar=calendar,
+        z_score=ZScoreDetector(threshold=analysis.z_score_threshold),
+        isolation_forest=IsolationForestDetector(
+            contamination=analysis.isolation_forest_contamination
+        ),
+        lookback_sessions=analysis.anomaly_lookback_sessions,
+    )
+
+
 SettingsDep = Annotated[Settings, Depends(get_app_settings)]
 SessionDep = Annotated[AsyncSession, Depends(get_db_session)]
 MongoDep = Annotated[MongoDatabase, Depends(get_mongo)]
@@ -163,6 +192,7 @@ HealthServiceDep = Annotated[HealthService, Depends(get_health_service)]
 NewsRepoDep = Annotated[NewsRepository, Depends(get_news_repository)]
 PriceIngestionDep = Annotated[PriceIngestionService, Depends(get_price_ingestion_service)]
 FeatureServiceDep = Annotated[FeatureEngineeringService, Depends(get_feature_service)]
+AnomalyServiceDep = Annotated[AnomalyDetectionService, Depends(get_anomaly_service)]
 
 # Repository dependencies. Endpoints and services annotate with these aliases
 # rather than constructing repositories, so a test can swap any one of them for

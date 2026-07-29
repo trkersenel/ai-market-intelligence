@@ -12,12 +12,12 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
-from pymongo import DESCENDING, UpdateOne
+from pymongo import ASCENDING, DESCENDING, UpdateOne
 from pymongo.errors import BulkWriteError
 
 from app.core.logging import get_logger
 from app.db.mongo import Collection, MongoDatabase, MongoDocument
-from app.schemas.documents import NewsArticle
+from app.schemas.documents import NewsArticle, SentimentScore
 
 logger = get_logger(__name__)
 
@@ -153,6 +153,49 @@ class NewsRepository:
             .limit(limit)
         )
         return [_to_article(document) async for document in cursor]
+
+    async def list_unscored(self, *, since: datetime, limit: int = 200) -> list[NewsArticle]:
+        """Return recent articles that carry no sentiment yet.
+
+        The absence of the field *is* the work queue: no cursor, no checkpoint
+        table, and a run that dies halfway simply leaves less work for the next
+        one. Oldest first, so a backlog drains in publication order rather than
+        starving the articles that have waited longest.
+        """
+        cursor = (
+            self._collection.find({"published_at": {"$gte": since}, "sentiment": None})
+            .sort("published_at", ASCENDING)
+            .limit(limit)
+        )
+        return [_to_article(document) async for document in cursor]
+
+    async def set_sentiments(self, updates: Sequence[tuple[str, SentimentScore]]) -> int:
+        """Attach sentiment scores to stored articles.
+
+        Args:
+            updates: ``(url_hash, score)`` pairs.
+
+        Returns:
+            The number of articles modified.
+
+        Notes:
+            Keyed on ``url_hash`` -- the deduplication key -- rather than
+            ``_id``, so a score can be written without the caller having to
+            carry MongoDB's identifier around.
+        """
+        if not updates:
+            return 0
+
+        operations = [
+            UpdateOne(
+                {"url_hash": url_hash},
+                {"$set": {"sentiment": score.model_dump()}},
+            )
+            for url_hash, score in updates
+        ]
+        result = await self._collection.bulk_write(operations, ordered=False)
+        logger.info("sentiment_stored", modified=result.modified_count)
+        return int(result.modified_count)
 
     async def count_since(self, since: datetime) -> int:
         """Return how many articles were published at or after ``since``."""

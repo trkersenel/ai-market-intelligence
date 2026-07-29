@@ -33,8 +33,10 @@ from app.core.logging import configure_logging, get_logger
 from app.workers.jobs import (
     JobContext,
     compute_features_job,
+    detect_anomalies_job,
     ingest_news_job,
     ingest_prices_job,
+    score_sentiment_job,
 )
 
 logger = get_logger(__name__)
@@ -77,6 +79,18 @@ def build_scheduler(settings: Settings, context: JobContext) -> AsyncIOScheduler
             "compute_features",
             compute_features_job,
             settings.scheduler.feature_computation_cron,
+        ),
+        # After features, for the same reason features run after prices: the
+        # detectors consume what the previous stage produces.
+        JobSpec(
+            "detect_anomalies",
+            detect_anomalies_job,
+            settings.scheduler.anomaly_detection_cron,
+        ),
+        JobSpec(
+            "score_sentiment",
+            score_sentiment_job,
+            settings.scheduler.sentiment_scoring_cron,
         ),
     )
     for spec in schedule:
