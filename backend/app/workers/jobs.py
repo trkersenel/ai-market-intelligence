@@ -40,7 +40,11 @@ from app.services.anomalies.detectors import (
 from app.services.features import FeatureEngineeringService
 from app.services.ingestion import NewsIngestionService, PriceIngestionService
 from app.services.market_calendar_service import MarketCalendarService
-from app.services.rag import DocumentIndexingService, build_embedding_provider
+from app.services.rag import (
+    CorrelationEngine,
+    DocumentIndexingService,
+    build_embedding_provider,
+)
 from app.services.sentiment import build_analyzer
 from app.services.sentiment_service import SentimentScoringService
 
@@ -277,5 +281,29 @@ async def index_documents_job(context: JobContext) -> None:
             )
         else:
             log.error("job_failed", error=report.error)
+    except Exception:
+        log.exception("job_failed")
+
+
+async def explain_anomalies_job(context: JobContext) -> None:
+    """Correlate unexplained anomalies with news published around their session.
+
+    Runs after detection, because it explains what the detectors found and has
+    nothing to do until they have run.
+    """
+    log = logger.bind(job="explain_anomalies")
+    llm = context.settings.llm
+    try:
+        async with context.postgres.session() as session:
+            engine = CorrelationEngine(
+                news=NewsRepository(context.mongo),
+                anomalies=AnomalyRepository(session),
+                tickers=TickerRepository(session),
+                lookback_hours=llm.correlation_lookback_hours,
+                lookahead_hours=llm.correlation_lookahead_hours,
+            )
+            results = await engine.explain_pending()
+
+        log.info("job_succeeded", explained=len(results))
     except Exception:
         log.exception("job_failed")

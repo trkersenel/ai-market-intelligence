@@ -241,6 +241,38 @@ class EmbeddingSettings(BaseSettings):
     rrf_k: Annotated[int, Field(ge=1)] = 60
 
 
+class LlmSettings(BaseSettings):
+    """Answer generation parameters."""
+
+    model_config = SettingsConfigDict(env_prefix="LLM_", extra="ignore")
+
+    #: Absent by default. Without it the platform answers extractively -- quoting
+    #: sources rather than synthesising -- which is a real degradation but not a
+    #: failure, and cannot fabricate.
+    openai_api_key: SecretStr | None = None
+    openai_base_url: str = "https://api.openai.com/v1"
+    chat_model: str = "gpt-4o-mini"
+
+    #: Low but not zero. Deterministic decoding on a grounded task produces
+    #: stilted, repetitive prose without improving accuracy, because the
+    #: grounding comes from the prompt rather than from the sampling.
+    temperature: Annotated[float, Field(ge=0.0, le=2.0)] = 0.2
+    max_output_tokens: Annotated[int, Field(ge=64, le=8192)] = 900
+
+    #: Passages placed in the prompt. Beyond roughly this many, retrieval noise
+    #: starts to crowd out the signal and answers get vaguer, not better.
+    context_passages: Annotated[int, Field(ge=1, le=50)] = 8
+    #: Characters per passage in the prompt. Long enough to carry an argument,
+    #: short enough that eight of them fit comfortably in the context window.
+    passage_chars: Annotated[int, Field(ge=200, le=4000)] = 900
+
+    #: Hours before an anomaly's session in which news is treated as a possible
+    #: cause. Asymmetric with the window after it, deliberately -- see
+    #: CorrelationEngine.
+    correlation_lookback_hours: Annotated[int, Field(ge=1)] = 72
+    correlation_lookahead_hours: Annotated[int, Field(ge=0)] = 24
+
+
 class AnalysisSettings(BaseSettings):
     """Sentiment and anomaly-detection parameters."""
 
@@ -287,6 +319,9 @@ class SchedulerSettings(BaseSettings):
     sentiment_scoring_cron: str = "25 * * * *"
     #: After sentiment, so an embedded chunk carries its score as metadata.
     embedding_cron: str = "40 * * * *"
+    #: After anomaly detection: the correlation engine explains what the
+    #: detectors found, so it has nothing to do until they have run.
+    correlation_cron: str = "40 23 * * mon-fri"
 
     #: A job that overruns its next trigger is skipped rather than queued, and
     #: never runs twice concurrently -- ingestion is idempotent, not reentrant.
@@ -352,6 +387,7 @@ class Settings(BaseSettings):
     ingestion: IngestionSettings = Field(default_factory=IngestionSettings)
     analysis: AnalysisSettings = Field(default_factory=AnalysisSettings)
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
+    llm: LlmSettings = Field(default_factory=LlmSettings)
     scheduler: SchedulerSettings = Field(default_factory=SchedulerSettings)
 
     @field_validator("cors_origins", mode="before")

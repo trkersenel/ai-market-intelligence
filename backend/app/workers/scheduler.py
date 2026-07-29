@@ -34,6 +34,7 @@ from app.workers.jobs import (
     JobContext,
     compute_features_job,
     detect_anomalies_job,
+    explain_anomalies_job,
     index_documents_job,
     ingest_news_job,
     ingest_prices_job,
@@ -97,6 +98,11 @@ def build_scheduler(settings: Settings, context: JobContext) -> AsyncIOScheduler
             "index_documents",
             index_documents_job,
             settings.scheduler.embedding_cron,
+        ),
+        JobSpec(
+            "explain_anomalies",
+            explain_anomalies_job,
+            settings.scheduler.correlation_cron,
         ),
     )
     for spec in schedule:

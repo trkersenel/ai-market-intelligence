@@ -64,6 +64,12 @@ class SearchResult:
     #: after the fact, not re-derived by re-running the query.
     matched_by: tuple[str, ...] = ()
     ranks: dict[str, int] = field(default_factory=dict)
+    #: Raw cosine similarity from the vector store, preserved through fusion.
+    #: RRF replaces `score` with a rank-derived value, and rank is relative:
+    #: the top result among entirely irrelevant documents still ranks first and
+    #: still scores 1/(k+1). Only an absolute similarity can answer "did we
+    #: actually find anything?", which is what refusal depends on.
+    vector_similarity: float | None = None
 
 
 @dataclass(frozen=True)
@@ -249,6 +255,7 @@ class HybridSearchService:
                         published_at=result.published_at,
                         matched_by=(retriever,),
                         ranks={retriever: rank},
+                        vector_similarity=result.vector_similarity,
                     )
                 else:
                     fused[key] = SearchResult(
@@ -262,6 +269,11 @@ class HybridSearchService:
                         published_at=existing.published_at or result.published_at,
                         matched_by=(*existing.matched_by, retriever),
                         ranks={**existing.ranks, retriever: rank},
+                        vector_similarity=(
+                            existing.vector_similarity
+                            if existing.vector_similarity is not None
+                            else result.vector_similarity
+                        ),
                     )
 
         ordered = sorted(fused.values(), key=lambda item: scores[item.source_id], reverse=True)
@@ -277,6 +289,7 @@ class HybridSearchService:
                 published_at=item.published_at,
                 matched_by=item.matched_by,
                 ranks=item.ranks,
+                vector_similarity=item.vector_similarity,
             )
             for item in ordered
         ]
@@ -287,6 +300,7 @@ def _from_vector_hit(hit: VectorHit) -> SearchResult:
     return SearchResult(
         text=hit.text,
         score=hit.score,
+        vector_similarity=hit.score,
         source_id=hit.source_id,
         source_url=hit.source_url,
         title=hit.title,

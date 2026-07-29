@@ -33,16 +33,20 @@ from app.repositories import (
     UserRepository,
     WatchlistRepository,
 )
-from app.repositories.documents import NewsRepository, RagChunkRepository
+from app.repositories.documents import ChatRepository, NewsRepository, RagChunkRepository
 from app.services.anomalies import AnomalyDetectionService
 from app.services.anomalies.detectors import IsolationForestDetector, ZScoreDetector
 from app.services.features import FeatureEngineeringService
 from app.services.health_service import HealthService
 from app.services.ingestion import PriceIngestionService
 from app.services.rag import (
+    ChatService,
+    CorrelationEngine,
     DocumentIndexingService,
     HybridSearchService,
+    RagService,
     build_embedding_provider,
+    build_llm_client,
     build_vector_store,
 )
 
@@ -241,6 +245,54 @@ async def get_search_service(
     )
 
 
+def get_chat_repository(
+    mongo: Annotated[MongoDatabase, Depends(get_mongo)],
+) -> ChatRepository:
+    """Assemble the conversation repository."""
+    return ChatRepository(mongo)
+
+
+async def get_rag_service(
+    settings: Annotated[Settings, Depends(get_app_settings)],
+    search: Annotated[HybridSearchService, Depends(get_search_service)],
+) -> RagService:
+    """Assemble the question-answering pipeline."""
+    llm = settings.llm
+    embedder = build_embedding_provider(settings.embedding, settings.ingestion)
+    return RagService(
+        search=search,
+        llm=build_llm_client(llm, settings.ingestion),
+        relevance_floor=embedder.relevance_floor,
+        context_passages=llm.context_passages,
+        passage_chars=llm.passage_chars,
+    )
+
+
+async def get_chat_service(
+    rag: Annotated[RagService, Depends(get_rag_service)],
+    chat: Annotated[ChatRepository, Depends(get_chat_repository)],
+) -> ChatService:
+    """Assemble the conversational wrapper."""
+    return ChatService(rag=rag, chat=chat)
+
+
+def get_correlation_engine(
+    settings: Annotated[Settings, Depends(get_app_settings)],
+    news: Annotated[NewsRepository, Depends(get_news_repository)],
+    anomalies: Annotated[AnomalyRepository, Depends(repository_provider(AnomalyRepository))],
+    tickers: Annotated[TickerRepository, Depends(repository_provider(TickerRepository))],
+) -> CorrelationEngine:
+    """Assemble the news-correlation engine."""
+    llm = settings.llm
+    return CorrelationEngine(
+        news=news,
+        anomalies=anomalies,
+        tickers=tickers,
+        lookback_hours=llm.correlation_lookback_hours,
+        lookahead_hours=llm.correlation_lookahead_hours,
+    )
+
+
 SettingsDep = Annotated[Settings, Depends(get_app_settings)]
 SessionDep = Annotated[AsyncSession, Depends(get_db_session)]
 MongoDep = Annotated[MongoDatabase, Depends(get_mongo)]
@@ -252,6 +304,9 @@ AnomalyServiceDep = Annotated[AnomalyDetectionService, Depends(get_anomaly_servi
 ChunkRepoDep = Annotated[RagChunkRepository, Depends(get_chunk_repository)]
 IndexingServiceDep = Annotated[DocumentIndexingService, Depends(get_indexing_service)]
 SearchServiceDep = Annotated[HybridSearchService, Depends(get_search_service)]
+RagServiceDep = Annotated[RagService, Depends(get_rag_service)]
+ChatServiceDep = Annotated[ChatService, Depends(get_chat_service)]
+CorrelationEngineDep = Annotated[CorrelationEngine, Depends(get_correlation_engine)]
 
 # Repository dependencies. Endpoints and services annotate with these aliases
 # rather than constructing repositories, so a test can swap any one of them for

@@ -18,7 +18,8 @@ from app.models.anomaly import Anomaly
 from app.models.company import Company, Ticker
 from app.models.enums import AssetType, Sentiment
 from app.models.price import DailyPrice
-from app.schemas.documents import NewsArticle
+from app.schemas.documents import ChatMessage, NewsArticle
+from app.services.rag.chat_service import ChatTurn
 from app.services.rag.search_service import SearchResponse
 
 
@@ -336,6 +337,89 @@ class SearchResponsePayload(BaseModel):
                 )
                 for result in response.results
             ],
+        )
+
+
+class CitationPayload(BaseModel):
+    """One source backing an answer."""
+
+    number: int
+    title: str | None = None
+    url: str | None = None
+    source_id: str
+    published_at: datetime | None = None
+    matched_by: list[str] = Field(default_factory=list)
+
+
+class ChatAnswerPayload(BaseModel):
+    """A grounded answer with everything needed to audit it."""
+
+    conversation_id: str
+    question: str
+    #: Present when a follow-up was rewritten using the previous turn. Returned
+    #: so a wrong rewrite is visible rather than silently changing the answer.
+    resolved_question: str | None = None
+    answer: str
+    citations: list[CitationPayload] = Field(default_factory=list)
+    #: Derived from the evidence -- volume, retrieval strength and cross-retriever
+    #: agreement -- never self-reported by the model.
+    confidence: float
+    #: True when the answer was assembled from source sentences rather than
+    #: generated, which happens when no language model is configured.
+    extractive: bool
+    #: True when retrieval found nothing usable and the platform declined.
+    refused: bool
+    retrieved: int
+    model_name: str
+
+    @classmethod
+    def from_turn(cls, turn: ChatTurn) -> Self:
+        """Build from a completed chat turn."""
+        answer = turn.answer
+        return cls(
+            conversation_id=turn.conversation_id,
+            question=answer.question,
+            resolved_question=turn.resolved_question if turn.was_resolved else None,
+            answer=answer.answer,
+            citations=[
+                CitationPayload(
+                    number=citation.number,
+                    title=citation.title,
+                    url=citation.url,
+                    source_id=citation.source_id,
+                    published_at=citation.published_at,
+                    matched_by=list(citation.matched_by),
+                )
+                for citation in answer.citations
+            ],
+            confidence=answer.confidence,
+            extractive=answer.extractive,
+            refused=answer.refused,
+            retrieved=answer.retrieved,
+            model_name=answer.model_name,
+        )
+
+
+class ChatMessagePayload(BaseModel):
+    """One stored turn of a conversation."""
+
+    role: str
+    content: str
+    created_at: datetime
+    confidence: float | None = None
+    model_name: str | None = None
+    retrieved_document_ids: list[str] = Field(default_factory=list)
+
+    @classmethod
+    def from_message(cls, message: ChatMessage) -> Self:
+        """Build from a stored message."""
+        return cls(
+            role=message.role,
+            content=message.content,
+            created_at=message.created_at,
+            confidence=message.confidence,
+            model_name=message.model_name,
+            retrieved_document_ids=list(message.retrieved_document_ids),
         )
 
 

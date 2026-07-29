@@ -15,6 +15,7 @@ from fastapi import APIRouter
 
 from app.api.v1.endpoints import (
     anomalies,
+    chat,
     companies,
     indicators,
     ingestion,
@@ -30,6 +31,8 @@ api_router.include_router(companies.tickers_router, prefix="/tickers")
 api_router.include_router(prices.router, prefix="/prices")
 api_router.include_router(indicators.router, prefix="/indicators")
 api_router.include_router(anomalies.router, prefix="/anomalies")
+api_router.include_router(chat.correlation_router, prefix="/anomalies")
+api_router.include_router(chat.router, prefix="/chat")
 api_router.include_router(news.router, prefix="/news")
 api_router.include_router(search.router, prefix="/search")
 api_router.include_router(ingestion.router, prefix="/ingestion")

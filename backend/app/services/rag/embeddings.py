@@ -53,6 +53,17 @@ class EmbeddingProvider(Protocol):
         """Vector width. Must match the configured Atlas index."""
         ...
 
+    @property
+    def relevance_floor(self) -> float:
+        """Cosine below which a result is noise *on this provider's scale*.
+
+        Belongs to the provider because similarity scales are not comparable
+        between embedders. A single platform-wide constant would be right for
+        at most one of them and silently wrong for the rest -- either refusing
+        good answers or, worse, answering questions the corpus cannot address.
+        """
+        ...
+
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
         """Return one vector per input, in the same order."""
         ...
@@ -111,6 +122,16 @@ class OpenAIEmbeddingProvider:
     def dimensions(self) -> int:
         """Configured vector width."""
         return self._settings.dimensions
+
+    @property
+    def relevance_floor(self) -> float:
+        """Cosine below which a result is noise.
+
+        OpenAI embeddings spread related and unrelated text much further apart
+        than a lexical hash does: unrelated pairs typically sit near 0.1-0.2 and
+        genuinely related text above 0.4, so the bar sits between them.
+        """
+        return 0.28
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
         """Embed a batch of passages.
@@ -197,6 +218,23 @@ class HashingEmbeddingProvider:
         re-embedded once a real model is configured.
         """
         return f"hashing-ngram{self._NGRAM}-v1"
+
+    @property
+    def relevance_floor(self) -> float:
+        """Cosine below which a result is noise.
+
+        Measured against the live corpus rather than guessed. Character n-grams
+        give any two pieces of English prose a non-zero floor -- common
+        substrings alone carry similarity -- so the separation is narrower than
+        a semantic model's:
+
+            "Brazilian coffee harvest 1987"   -> best match 0.091
+            "memory chip prices, HBM demand"  -> best match 0.247
+
+        0.15 sits between them. The gap being this narrow is itself the
+        argument for configuring a real embedding model.
+        """
+        return 0.15
 
     @property
     def dimensions(self) -> int:

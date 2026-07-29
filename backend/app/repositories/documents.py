@@ -17,7 +17,7 @@ from pymongo.errors import BulkWriteError
 
 from app.core.logging import get_logger
 from app.db.mongo import Collection, MongoDatabase, MongoDocument
-from app.schemas.documents import NewsArticle, RagChunk, SentimentScore
+from app.schemas.documents import ChatMessage, NewsArticle, RagChunk, SentimentScore
 
 logger = get_logger(__name__)
 
@@ -269,3 +269,61 @@ class RagChunkRepository:
         """
         result = await self._collection.delete_many({"embedding_model": model_name})
         return int(result.deleted_count)
+
+
+class ChatRepository:
+    """Stores and replays conversations."""
+
+    def __init__(self, mongo: MongoDatabase) -> None:
+        """Bind the repository to the document store."""
+        self._mongo = mongo
+        self._collection = mongo.collection(Collection.CHAT_HISTORY)
+
+    async def append(self, message: ChatMessage) -> str:
+        """Store one turn and return its id."""
+        result = await self._collection.insert_one(message.to_document())
+        return str(result.inserted_id)
+
+    async def list_conversation(
+        self, conversation_id: str, *, limit: int = 20
+    ) -> list[ChatMessage]:
+        """Return a conversation in chronological order.
+
+        Ascending by creation time, matching the
+        ``(conversation_id, created_at)`` index, so replay needs no sort stage.
+        """
+        cursor = (
+            self._collection.find({"conversation_id": conversation_id})
+            .sort("created_at", ASCENDING)
+            .limit(limit)
+        )
+        return [_to_message(document) async for document in cursor]
+
+    async def last_user_message(self, conversation_id: str) -> ChatMessage | None:
+        """Return the most recent user turn, for follow-up resolution."""
+        document = await self._collection.find_one(
+            {"conversation_id": conversation_id, "role": "user"},
+            sort=[("created_at", DESCENDING)],
+        )
+        return None if document is None else _to_message(document)
+
+    async def list_recent_conversations(self, user_id: str, *, limit: int = 20) -> list[str]:
+        """Return a user's most recently active conversation ids."""
+        cursor = (
+            self._collection.find({"user_id": user_id}, {"conversation_id": 1, "created_at": 1})
+            .sort("created_at", DESCENDING)
+            .limit(limit * 10)
+        )
+        seen: dict[str, None] = {}
+        async for document in cursor:
+            seen.setdefault(str(document["conversation_id"]), None)
+            if len(seen) >= limit:
+                break
+        return list(seen)
+
+
+def _to_message(document: MongoDocument) -> ChatMessage:
+    """Convert a stored document into a validated chat message."""
+    document = dict(document)
+    document["_id"] = str(document["_id"])
+    return ChatMessage.model_validate(document)
