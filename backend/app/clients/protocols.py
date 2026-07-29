@@ -64,6 +64,13 @@ class RawArticle(BaseModel):
     author: str | None = None
     language: str = "en"
 
+    #: Symbols the *source* guarantees this article is about, as opposed to ones
+    #: the tagger infers from the text. A per-ticker feed knows something no
+    #: amount of keyword matching can establish: an article can discuss Micron's
+    #: quarter at length without ever writing "Micron", and a generic feed would
+    #: silently drop it.
+    tickers: list[str] = Field(default_factory=list)
+
     @field_validator("published_at")
     @classmethod
     def _require_timezone(cls, value: datetime) -> datetime:

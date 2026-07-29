@@ -13,9 +13,14 @@ the next tick.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
-from app.clients.news_clients import NewsApiProvider, RssProvider
+from app.clients.news_clients import (
+    NewsApiProvider,
+    RssProvider,
+    YahooFinanceNewsProvider,
+)
 from app.clients.protocols import NewsProvider
 from app.clients.yfinance_client import YFinancePriceProvider
 from app.core.config import Settings
@@ -96,7 +101,13 @@ async def ingest_prices_job(context: JobContext) -> None:
 async def ingest_news_job(context: JobContext) -> None:
     """Poll every configured news provider and store relevant articles."""
     log = logger.bind(job="ingest_news")
-    providers = _build_news_providers(context.settings)
+
+    # The tracked symbols are read first: the Yahoo provider fetches one feed
+    # per ticker, so it cannot be built without them.
+    async with context.postgres.session() as session:
+        symbols = [listing.symbol for listing in await TickerRepository(session).list_active()]
+
+    providers = _build_news_providers(context.settings, symbols)
     if not providers:
         log.warning("job_skipped", reason="no news providers are configured")
         return
@@ -123,7 +134,7 @@ async def ingest_news_job(context: JobContext) -> None:
             await provider.aclose()  # type: ignore[attr-defined]
 
 
-def _build_news_providers(settings: Settings) -> list[NewsProvider]:
+def _build_news_providers(settings: Settings, symbols: Sequence[str]) -> list[NewsProvider]:
     """Instantiate the news providers that are actually usable.
 
     NewsAPI is included only when a key is configured. The platform is designed
@@ -131,6 +142,8 @@ def _build_news_providers(settings: Settings) -> list[NewsProvider]:
     coverage rather than breaking ingestion.
     """
     providers: list[NewsProvider] = [RssProvider(settings.ingestion)]
+    if settings.ingestion.yahoo_news_enabled and symbols:
+        providers.append(YahooFinanceNewsProvider(settings.ingestion, symbols))
     if NewsApiProvider.is_configured(settings.ingestion):
         providers.append(NewsApiProvider(settings.ingestion))
     else:

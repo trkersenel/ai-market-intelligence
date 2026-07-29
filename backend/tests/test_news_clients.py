@@ -16,7 +16,12 @@ from typing import Any, ClassVar
 import httpx
 import pytest
 
-from app.clients.news_clients import NewsApiProvider, RssProvider, SecFilingsProvider
+from app.clients.news_clients import (
+    NewsApiProvider,
+    RssProvider,
+    SecFilingsProvider,
+    YahooFinanceNewsProvider,
+)
 from app.core.config import IngestionSettings
 from app.core.exceptions import ExternalServiceError
 from app.models.enums import DataSource
@@ -242,3 +247,78 @@ class TestSecFilingsProvider:
 
         with pytest.raises(ExternalServiceError, match="malformed"):
             await provider.fetch_filings("723125", since=SINCE)
+
+
+class TestYahooFinanceNewsProvider:
+    """Per-ticker feeds, where attribution comes from the source."""
+
+    def _provider(
+        self, transport: httpx.MockTransport, symbols: list[str] | None = None
+    ) -> YahooFinanceNewsProvider:
+        return YahooFinanceNewsProvider(
+            _settings(),
+            symbols or ["NVDA"],
+            client=httpx.AsyncClient(transport=transport),
+        )
+
+    async def test_every_article_carries_the_symbol_it_was_fetched_for(self) -> None:
+        """The whole point: attribution is certain, not inferred from prose."""
+        feed = (FIXTURES / "yahoo_nvda.xml").read_text()
+        provider = self._provider(_transport(httpx.Response(200, text=feed)))
+
+        articles = await provider.fetch_articles(since=SINCE)
+
+        assert len(articles) == 2
+        assert all(article.tickers == ["NVDA"] for article in articles)
+
+    async def test_the_symbol_is_sent_as_a_query_parameter(self) -> None:
+        captured: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(str(request.url))
+            return httpx.Response(200, text=(FIXTURES / "yahoo_nvda.xml").read_text())
+
+        provider = self._provider(httpx.MockTransport(handler), symbols=["nvda", "mu"])
+        await provider.fetch_articles(since=SINCE)
+
+        assert "s=NVDA" in captured[0]
+        assert "s=MU" in captured[1]
+
+    async def test_one_story_in_several_feeds_is_merged_not_duplicated(self) -> None:
+        """A TSMC capacity story appears under NVDA, AMD and TSM.
+
+        Three copies would let the correlation engine count one event as three
+        pieces of evidence; one copy with one ticker would lose the other two.
+        """
+        feed = (FIXTURES / "yahoo_nvda.xml").read_text()
+        provider = self._provider(
+            _transport(httpx.Response(200, text=feed)), symbols=["NVDA", "AMD", "TSM"]
+        )
+
+        articles = await provider.fetch_articles(since=SINCE)
+
+        assert len(articles) == 2  # deduplicated by URL
+        assert sorted(articles[0].tickers) == ["AMD", "NVDA", "TSM"]
+
+    async def test_a_failing_symbol_does_not_abort_the_rest(self) -> None:
+        feed = (FIXTURES / "yahoo_nvda.xml").read_text()
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if "BROKEN" in str(request.url):
+                return httpx.Response(500)
+            return httpx.Response(200, text=feed)
+
+        provider = self._provider(httpx.MockTransport(handler), symbols=["BROKEN", "NVDA"])
+
+        articles = await provider.fetch_articles(since=SINCE)
+
+        assert articles
+        assert all("NVDA" in article.tickers for article in articles)
+
+    async def test_entries_older_than_the_window_are_excluded(self) -> None:
+        feed = (FIXTURES / "yahoo_nvda.xml").read_text()
+        provider = self._provider(_transport(httpx.Response(200, text=feed)))
+
+        articles = await provider.fetch_articles(since=datetime(2026, 7, 29, tzinfo=UTC))
+
+        assert articles == []

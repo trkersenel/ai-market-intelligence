@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<rss version="2.0">
+  <channel>
+    <title>Yahoo! Finance: NVDA News</title>
+    <description>Latest Financial News for NVDA</description>
+    <item>
+      <title>Credit markets quietly reprice the AI infrastructure boom</title>
+      <link>https://finance.yahoo.com/news/credit-markets-ai-boom</link>
+      <description>Borrowing costs for levered AI names hit distress levels.</description>
+      <pubDate>Tue, 28 Jul 2026 14:00:00 +0000</pubDate>
+    </item>
+    <item>
+      <title>Analysts weigh the quarter without naming a single company</title>
+      <link>https://finance.yahoo.com/news/analysts-weigh-quarter</link>
+      <description>A note on memory pricing that mentions no issuer by name.</description>
+      <pubDate>Tue, 28 Jul 2026 09:00:00 +0000</pubDate>
+    </item>
+  </channel>
+</rss>

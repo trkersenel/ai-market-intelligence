@@ -150,15 +150,26 @@ class IngestionSettings(BaseSettings):
     sec_user_agent: str = "AI Market Intelligence Platform (contact@example.com)"
     sec_base_url: str = "https://data.sec.gov"
 
-    #: RSS feeds covering the semiconductor and AI-infrastructure press.
+    #: Industry and market feeds.
+    #:
+    #: Consumer-hardware outlets were removed after a live run showed why they
+    #: do not belong: GPU reviews and mini-PC write-ups matched the sentiment
+    #: lexicon on words like "upgrade" and were stored as bullish market news.
+    #: The remaining feeds cover the industry and the market rather than the
+    #: products, and per-company news comes from the Yahoo Finance provider,
+    #: which attributes each article to a ticker at the source.
     rss_feeds: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: [
-            "https://www.tomshardware.com/feeds/all",
-            "https://www.anandtech.com/rss/",
             "https://semiengineering.com/feed/",
             "https://www.datacenterdynamics.com/en/rss/",
+            "https://feeds.content.dowjones.io/public/rss/mw_topstories",
+            "https://seekingalpha.com/market_currents.xml",
         ]
     )
+
+    #: Fetch per-ticker news from Yahoo Finance. Costs one request per tracked
+    #: symbol per run and needs no credential.
+    yahoo_news_enabled: bool = True
 
     request_timeout_seconds: Annotated[float, Field(gt=0)] = 20.0
     max_retries: Annotated[int, Field(ge=0, le=10)] = 3

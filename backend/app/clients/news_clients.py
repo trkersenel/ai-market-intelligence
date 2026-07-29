@@ -11,6 +11,7 @@ ingestion, so per-source failures are contained rather than propagated.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from typing import Any
@@ -238,6 +239,117 @@ class RssProvider:
         await self._http.aclose()
 
 
+class YahooFinanceNewsProvider:
+    """Per-ticker financial news from Yahoo Finance's RSS feeds.
+
+    Structurally different from the generic feeds, and better for what this
+    platform does. A generic feed is a firehose the tagger must filter, which
+    fails in both directions: consumer hardware reviews slip through on words
+    like "upgrade", while an article analysing Micron's quarter without ever
+    writing "Micron" is dropped.
+
+    A per-symbol feed inverts that. The source has already decided the article
+    is about NVDA, so attribution is certain and the tagger's job shrinks to
+    finding *additional* companies and segments.
+
+    Costs one request per tracked symbol per run, which the rate limiter spaces
+    out and which is trivial at fourteen listings.
+    """
+
+    _FEED_URL = "https://feeds.finance.yahoo.com/rss/2.0/headline"
+
+    def __init__(
+        self,
+        settings: IngestionSettings,
+        symbols: Sequence[str],
+        *,
+        client: httpx.AsyncClient | None = None,
+    ) -> None:
+        """Configure the provider.
+
+        Args:
+            settings: Rate limit and retry configuration.
+            symbols: Tracked symbols to fetch news for.
+            client: Injected transport, used by tests.
+        """
+        self._settings = settings
+        self._symbols = [symbol.strip().upper() for symbol in symbols if symbol.strip()]
+        self._http = HttpClient(
+            settings=settings,
+            rate_limit=settings.rss_rate_limit,
+            headers={"User-Agent": settings.sec_user_agent},
+            provider="yahoo_news",
+            client=client,
+        )
+
+    @property
+    def source(self) -> DataSource:
+        """Provenance recorded on every article."""
+        return DataSource.RSS
+
+    @property
+    def name(self) -> str:
+        """Human-readable provider name."""
+        return "yahoo_finance_news"
+
+    async def fetch_articles(
+        self, *, since: datetime, query: str | None = None, limit: int = 100
+    ) -> list[RawArticle]:
+        """Return recent articles across every tracked symbol.
+
+        A symbol whose feed fails is skipped, for the same reason one broken RSS
+        feed does not abort the others.
+        """
+        articles: list[RawArticle] = []
+        for symbol in self._symbols:
+            try:
+                body = await self._http.get_text(
+                    self._FEED_URL,
+                    params={"s": symbol, "region": "US", "lang": "en-US"},
+                )
+            except ExternalServiceError as exc:
+                logger.warning("yahoo_news_failed", symbol=symbol, error=str(exc))
+                continue
+            articles.extend(self._parse(symbol, body, since=since))
+
+        deduplicated = _merge_by_url(articles)
+        deduplicated.sort(key=lambda article: article.published_at, reverse=True)
+        logger.info("yahoo_news_fetched", articles=len(deduplicated), symbols=len(self._symbols))
+        return deduplicated[:limit]
+
+    def _parse(self, symbol: str, body: str, *, since: datetime) -> list[RawArticle]:
+        """Parse one symbol's feed, stamping every entry with that symbol."""
+        import feedparser  # noqa: PLC0415
+
+        parsed = feedparser.parse(body)
+        articles: list[RawArticle] = []
+
+        for entry in parsed.entries:
+            published_at = _entry_timestamp(entry)
+            link = getattr(entry, "link", None)
+            title = getattr(entry, "title", None)
+            if published_at is None or published_at < since or not link or not title:
+                continue
+
+            articles.append(
+                RawArticle(
+                    url=link,
+                    title=title.strip(),
+                    summary=getattr(entry, "summary", None),
+                    content=_entry_content(entry),
+                    published_at=published_at,
+                    source=self.source,
+                    source_name=f"Yahoo Finance ({symbol})",
+                    tickers=[symbol],
+                )
+            )
+        return articles
+
+    async def aclose(self) -> None:
+        """Release the transport."""
+        await self._http.aclose()
+
+
 class SecFilingsProvider:
     """Recent SEC filings for tracked companies, via EDGAR's submissions API.
 
@@ -367,6 +479,25 @@ class SecFilingsProvider:
     async def aclose(self) -> None:
         """Release the transport."""
         await self._http.aclose()
+
+
+def _merge_by_url(articles: Sequence[RawArticle]) -> list[RawArticle]:
+    """Collapse duplicates by URL, unioning the tickers each copy asserted.
+
+    One story routinely appears in several symbols' feeds -- a TSMC capacity
+    article shows up under NVDA, AMD and TSM. Keeping three copies would let the
+    correlation engine count one event as three pieces of evidence; keeping only
+    the first would discard the fact that it concerns all three.
+    """
+    merged: dict[str, RawArticle] = {}
+    for article in articles:
+        existing = merged.get(article.url)
+        if existing is None:
+            merged[article.url] = article
+            continue
+        combined = list(dict.fromkeys([*existing.tickers, *article.tickers]))
+        merged[article.url] = existing.model_copy(update={"tickers": combined})
+    return list(merged.values())
 
 
 def _entry_timestamp(entry: Any) -> datetime | None:

@@ -144,13 +144,21 @@ class NewsIngestionService:
     def _normalise(self, raw: RawArticle, tagger: ArticleTagger) -> NewsArticle | None:
         """Tag an article and convert it, or drop it as irrelevant.
 
-        Returns ``None`` when the text mentions no tracked company and no
-        ecosystem segment. Storing those would inflate the retrieval index with
-        material the platform can never usefully cite.
+        Returns ``None`` when neither the source nor the tagger can attach the
+        article to anything tracked. Storing those would inflate the retrieval
+        index with material the platform can never usefully cite.
+
+        A source-asserted ticker outranks the tagger. A per-symbol feed has
+        already established what the article is about, and an analysis of
+        Micron's quarter that never writes "Micron" is exactly the article worth
+        keeping -- and exactly the one keyword matching drops.
         """
         tags = tagger.tag(raw.searchable_text)
-        if not tags.is_relevant:
+        asserted = [symbol.strip().upper() for symbol in raw.tickers if symbol.strip()]
+        if not tags.is_relevant and not asserted:
             return None
+
+        tickers = list(dict.fromkeys([*asserted, *tags.tickers]))
 
         return NewsArticle(
             url_hash=NewsArticle.hash_url(raw.url),
@@ -163,7 +171,7 @@ class NewsIngestionService:
             author=raw.author,
             published_at=raw.published_at,
             ingested_at=datetime.now(UTC),
-            tickers=list(tags.tickers),
+            tickers=tickers,
             company_slugs=list(tags.company_slugs),
             keywords=list(tags.keywords),
             tags=list(tags.tags),

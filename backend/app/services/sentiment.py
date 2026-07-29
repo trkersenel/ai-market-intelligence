@@ -47,6 +47,13 @@ _BULLISH_TERMS: dict[str, float] = {
     "expansion": 0.7, "sold out": 1.1, "shortage": 0.8,
     "outperform": 1.1, "accelerating": 0.9, "wins": 0.9,
     "partnership": 0.6, "breakthrough": 1.0, "exceeded": 1.0, "optimistic": 0.8,
+    # Directional verbs added after a live run: real headlines report moves as
+    # "Vertiv Stock Hits All-Time High", not "Vertiv is optimistic". Without
+    # these the analyser called two thirds of a financial corpus neutral.
+    "rises": 0.9, "rose": 0.9, "gains": 0.9, "gained": 0.9, "climbs": 0.9,
+    "climbed": 0.9, "jumps": 1.1, "soars": 1.3, "rallies": 1.0, "tops": 0.9,
+    "boosts": 0.9, "boosted": 0.9, "high": 0.5, "surges": 1.2, "advances": 0.7,
+    "climbing": 0.9, "rising": 0.8, "soaring": 1.3, "jumping": 1.1,
 }  # fmt: skip
 
 _BEARISH_TERMS: dict[str, float] = {
@@ -57,6 +64,12 @@ _BEARISH_TERMS: dict[str, float] = {
     "delay": 0.8, "delayed": 0.8, "shortfall": 1.0, "warning": 1.0, "warns": 1.0,
     "underperform": 1.1, "loss": 0.9, "losses": 0.9, "layoffs": 1.0,
     "investigation": 0.9, "recall": 1.0, "halted": 1.0, "slowdown": 1.0,
+    # The bearish half of the same observation.
+    "drops": 0.9, "dropped": 0.9, "sinks": 1.0, "sank": 1.0, "selloff": 1.0,
+    "tumble": 1.1, "tumbled": 1.1, "tumbles": 1.1, "slid": 0.9, "slides": 0.9,
+    "plummet": 1.3, "plummeted": 1.3, "sliding": 0.9, "retreat": 0.8,
+    "distress": 1.0, "falling": 0.9, "sinking": 1.0, "dropping": 0.9,
+    "tumbling": 1.1, "plunging": 1.3,
 }  # fmt: skip
 
 #: Terms that invert the polarity of a nearby sentiment word. Without these,
