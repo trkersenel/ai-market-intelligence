@@ -162,7 +162,7 @@ ai-market-intelligence/
 | 3 | Ingestion: yfinance, NewsAPI, RSS, SEC; deduplication | ✅ Done |
 | 4 | Feature engineering: returns, RSI, MACD, Bollinger, ATR | ✅ Done |
 | 5 | Sentiment + anomaly detection (Isolation Forest, Z-score) | ✅ Done |
-| 6 | Vector store, embeddings, hybrid search | Planned |
+| 6 | Vector store, embeddings, hybrid search | ✅ Done |
 | 7 | RAG pipeline, news-correlation engine, chat API | Planned |
 | 8 | Auth, watchlists, portfolios, WebSocket price stream | Planned |
 | 9 | React frontend: dashboard, heatmap, anomalies, chat | Planned |

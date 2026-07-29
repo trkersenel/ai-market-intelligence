@@ -96,13 +96,31 @@ class HttpClient:
             msg = f"{self._provider} returned a non-JSON response"
             raise ExternalServiceError(msg, details={"url": url}) from exc
 
+    async def post_json(self, url: str, *, json: dict[str, Any]) -> Any:
+        """POST a JSON body and parse the JSON response.
+
+        Raises:
+            ExternalServiceError: On a non-retryable status or unparseable body.
+        """
+        response = await self._request("POST", url, json=json)
+        try:
+            return response.json()
+        except ValueError as exc:
+            msg = f"{self._provider} returned a non-JSON response"
+            raise ExternalServiceError(msg, details={"url": url}) from exc
+
     async def get_text(self, url: str, *, params: dict[str, Any] | None = None) -> str:
         """Issue a GET and return the body as text (for RSS and XML feeds)."""
         response = await self._request("GET", url, params=params)
         return response.text
 
     async def _request(
-        self, method: str, url: str, *, params: dict[str, Any] | None = None
+        self,
+        method: str,
+        url: str,
+        *,
+        params: dict[str, Any] | None = None,
+        json: dict[str, Any] | None = None,
     ) -> httpx.Response:
         """Perform a rate-limited request, retrying transient failures."""
         try:
@@ -113,7 +131,7 @@ class HttpClient:
                 reraise=False,
             ):
                 with attempt:
-                    return await self._attempt(method, url, params=params)
+                    return await self._attempt(method, url, params=params, json=json)
         except RetryError as exc:
             last = exc.last_attempt.exception()
             if isinstance(last, TransientHttpError) and "429" in str(last):
@@ -126,14 +144,19 @@ class HttpClient:
         raise AssertionError  # pragma: no cover
 
     async def _attempt(
-        self, method: str, url: str, *, params: dict[str, Any] | None
+        self,
+        method: str,
+        url: str,
+        *,
+        params: dict[str, Any] | None,
+        json: dict[str, Any] | None = None,
     ) -> httpx.Response:
         """Issue one rate-limited request and classify the outcome."""
         waited = await self._limiter.acquire()
         if waited > 0:
             logger.debug("rate_limited", provider=self._provider, waited_seconds=waited)
 
-        response = await self._client.request(method, url, params=params)
+        response = await self._client.request(method, url, params=params, json=json)
 
         if response.status_code in RETRYABLE_STATUS_CODES:
             msg = f"{self._provider} returned {response.status_code}"

@@ -20,6 +20,7 @@ from app.api.v1.endpoints import (
     ingestion,
     news,
     prices,
+    search,
 )
 
 api_router = APIRouter()
@@ -30,6 +31,7 @@ api_router.include_router(prices.router, prefix="/prices")
 api_router.include_router(indicators.router, prefix="/indicators")
 api_router.include_router(anomalies.router, prefix="/anomalies")
 api_router.include_router(news.router, prefix="/news")
+api_router.include_router(search.router, prefix="/search")
 api_router.include_router(ingestion.router, prefix="/ingestion")
 
 # Routers added in later milestones:

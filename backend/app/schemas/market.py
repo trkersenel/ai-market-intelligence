@@ -19,6 +19,7 @@ from app.models.company import Company, Ticker
 from app.models.enums import AssetType, Sentiment
 from app.models.price import DailyPrice
 from app.schemas.documents import NewsArticle
+from app.services.rag.search_service import SearchResponse
 
 
 class TickerSummary(BaseModel):
@@ -278,6 +279,63 @@ class AnomalyResponse(BaseModel):
             confidence=anomaly.confidence,
             explanation=anomaly.explanation,
             related_document_ids=list(anomaly.related_document_ids),
+        )
+
+
+class SearchResultPayload(BaseModel):
+    """One fused search result."""
+
+    text: str
+    score: float
+    source_id: str
+    source_url: str | None = None
+    title: str | None = None
+    tickers: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    published_at: datetime | None = None
+    #: Which retrievers surfaced this result, and where each ranked it. Exposed
+    #: rather than kept internal because a RAG citation has to be auditable: a
+    #: user asking "why was this cited?" deserves an answer that does not
+    #: require re-running the query.
+    matched_by: list[str] = Field(default_factory=list)
+    ranks: dict[str, int] = Field(default_factory=dict)
+
+
+class SearchResponsePayload(BaseModel):
+    """A search response, including how it was served."""
+
+    query: str
+    mode: str
+    #: 'atlas' or 'brute_force'. Surfaced so a result set is attributable to the
+    #: backend that produced it -- approximate and exact search do not always
+    #: agree, and silently switching between them would make that undebuggable.
+    backend: str
+    count: int
+    results: list[SearchResultPayload]
+
+    @classmethod
+    def from_response(cls, response: SearchResponse) -> Self:
+        """Build from the service's response object."""
+        return cls(
+            query=response.query,
+            mode=response.mode.value,
+            backend=response.backend,
+            count=response.count,
+            results=[
+                SearchResultPayload(
+                    text=result.text,
+                    score=result.score,
+                    source_id=result.source_id,
+                    source_url=result.source_url,
+                    title=result.title,
+                    tickers=list(result.tickers),
+                    tags=list(result.tags),
+                    published_at=result.published_at,
+                    matched_by=list(result.matched_by),
+                    ranks=dict(result.ranks),
+                )
+                for result in response.results
+            ],
         )
 
 

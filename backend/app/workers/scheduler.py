@@ -34,6 +34,7 @@ from app.workers.jobs import (
     JobContext,
     compute_features_job,
     detect_anomalies_job,
+    index_documents_job,
     ingest_news_job,
     ingest_prices_job,
     score_sentiment_job,
@@ -91,6 +92,11 @@ def build_scheduler(settings: Settings, context: JobContext) -> AsyncIOScheduler
             "score_sentiment",
             score_sentiment_job,
             settings.scheduler.sentiment_scoring_cron,
+        ),
+        JobSpec(
+            "index_documents",
+            index_documents_job,
+            settings.scheduler.embedding_cron,
         ),
     )
     for spec in schedule:

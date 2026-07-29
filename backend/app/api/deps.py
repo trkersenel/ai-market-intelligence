@@ -33,12 +33,18 @@ from app.repositories import (
     UserRepository,
     WatchlistRepository,
 )
-from app.repositories.documents import NewsRepository
+from app.repositories.documents import NewsRepository, RagChunkRepository
 from app.services.anomalies import AnomalyDetectionService
 from app.services.anomalies.detectors import IsolationForestDetector, ZScoreDetector
 from app.services.features import FeatureEngineeringService
 from app.services.health_service import HealthService
 from app.services.ingestion import PriceIngestionService
+from app.services.rag import (
+    DocumentIndexingService,
+    HybridSearchService,
+    build_embedding_provider,
+    build_vector_store,
+)
 
 
 def get_app_settings(request: Request) -> Settings:
@@ -185,6 +191,56 @@ def get_anomaly_service(
     )
 
 
+def get_chunk_repository(
+    mongo: Annotated[MongoDatabase, Depends(get_mongo)],
+) -> RagChunkRepository:
+    """Assemble the repository over embedded chunks."""
+    return RagChunkRepository(mongo)
+
+
+def get_indexing_service(
+    settings: Annotated[Settings, Depends(get_app_settings)],
+    news: Annotated[NewsRepository, Depends(get_news_repository)],
+    chunks: Annotated[RagChunkRepository, Depends(get_chunk_repository)],
+) -> DocumentIndexingService:
+    """Assemble the document indexing service."""
+    embedding = settings.embedding
+    return DocumentIndexingService(
+        embedder=build_embedding_provider(embedding, settings.ingestion),
+        news=news,
+        chunks=chunks,
+        chunk_size=embedding.chunk_size,
+        chunk_overlap=embedding.chunk_overlap,
+        documents_per_run=embedding.documents_per_run,
+    )
+
+
+async def get_search_service(
+    request: Request,
+    settings: Annotated[Settings, Depends(get_app_settings)],
+    news: Annotated[NewsRepository, Depends(get_news_repository)],
+) -> HybridSearchService:
+    """Assemble the hybrid search service.
+
+    The vector backend is probed once and cached on ``app.state``: the check is
+    a round trip to the database, and repeating it per request would add latency
+    to answer a question whose answer cannot change while the process runs.
+    """
+    store = getattr(request.app.state, "vector_store", None)
+    if store is None:
+        store = await build_vector_store(get_mongo(request))
+        request.app.state.vector_store = store
+
+    embedding = settings.embedding
+    return HybridSearchService(
+        embedder=build_embedding_provider(embedding, settings.ingestion),
+        vector_store=store,
+        news=news,
+        candidates=embedding.vector_candidates,
+        rrf_k=embedding.rrf_k,
+    )
+
+
 SettingsDep = Annotated[Settings, Depends(get_app_settings)]
 SessionDep = Annotated[AsyncSession, Depends(get_db_session)]
 MongoDep = Annotated[MongoDatabase, Depends(get_mongo)]
@@ -193,6 +249,9 @@ NewsRepoDep = Annotated[NewsRepository, Depends(get_news_repository)]
 PriceIngestionDep = Annotated[PriceIngestionService, Depends(get_price_ingestion_service)]
 FeatureServiceDep = Annotated[FeatureEngineeringService, Depends(get_feature_service)]
 AnomalyServiceDep = Annotated[AnomalyDetectionService, Depends(get_anomaly_service)]
+ChunkRepoDep = Annotated[RagChunkRepository, Depends(get_chunk_repository)]
+IndexingServiceDep = Annotated[DocumentIndexingService, Depends(get_indexing_service)]
+SearchServiceDep = Annotated[HybridSearchService, Depends(get_search_service)]
 
 # Repository dependencies. Endpoints and services annotate with these aliases
 # rather than constructing repositories, so a test can swap any one of them for

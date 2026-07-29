@@ -204,6 +204,43 @@ class IngestionSettings(BaseSettings):
         return [feed.strip() for feed in stripped.split(",") if feed.strip()]
 
 
+class EmbeddingSettings(BaseSettings):
+    """Embedding model, chunking and retrieval parameters."""
+
+    model_config = SettingsConfigDict(env_prefix="EMBED_", extra="ignore")
+
+    #: OpenAI credential. Absent by default, in which case the platform falls
+    #: back to a lexical embedding that needs no key and no model download.
+    openai_api_key: SecretStr | None = None
+    openai_base_url: str = "https://api.openai.com/v1"
+    model: str = "text-embedding-3-small"
+
+    #: Vector width. Must match the Atlas index exactly -- vectors of different
+    #: widths are not comparable, so changing this means rebuilding the index and
+    #: re-embedding every document. 1536 is text-embedding-3-small's native size.
+    dimensions: Annotated[int, Field(ge=64, le=4096)] = 1536
+
+    #: Characters per chunk, and the overlap between consecutive chunks.
+    #: Overlap exists so a sentence spanning a boundary is retrievable from
+    #: either side; without it, the single most relevant passage can be the one
+    #: split down the middle.
+    chunk_size: Annotated[int, Field(ge=200, le=8000)] = 1200
+    chunk_overlap: Annotated[int, Field(ge=0, le=2000)] = 200
+
+    batch_size: Annotated[int, Field(ge=1, le=512)] = 64
+    #: Documents embedded per scheduled pass.
+    documents_per_run: Annotated[int, Field(ge=1)] = 200
+
+    #: Candidates the vector stage retrieves before fusion. Larger than the final
+    #: result count because fusion needs depth to work with -- a document ranked
+    #: 40th by vector and 2nd by keyword should still surface.
+    vector_candidates: Annotated[int, Field(ge=10, le=1000)] = 100
+    #: Reciprocal-rank-fusion constant. 60 is the value from the original TREC
+    #: work and is what most implementations use; it damps the influence of the
+    #: very top ranks enough that one confident-but-wrong system cannot dominate.
+    rrf_k: Annotated[int, Field(ge=1)] = 60
+
+
 class AnalysisSettings(BaseSettings):
     """Sentiment and anomaly-detection parameters."""
 
@@ -248,6 +285,8 @@ class SchedulerSettings(BaseSettings):
     anomaly_detection_cron: str = "20 23 * * mon-fri"
     #: Hourly, offset from news ingestion so scoring sees a settled batch.
     sentiment_scoring_cron: str = "25 * * * *"
+    #: After sentiment, so an embedded chunk carries its score as metadata.
+    embedding_cron: str = "40 * * * *"
 
     #: A job that overruns its next trigger is skipped rather than queued, and
     #: never runs twice concurrently -- ingestion is idempotent, not reentrant.
@@ -312,6 +351,7 @@ class Settings(BaseSettings):
     observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
     ingestion: IngestionSettings = Field(default_factory=IngestionSettings)
     analysis: AnalysisSettings = Field(default_factory=AnalysisSettings)
+    embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
     scheduler: SchedulerSettings = Field(default_factory=SchedulerSettings)
 
     @field_validator("cors_origins", mode="before")

@@ -29,7 +29,7 @@ from app.db.mongo import MongoDatabase
 from app.db.postgres import PostgresDatabase
 from app.repositories.anomaly import AnomalyRepository
 from app.repositories.company import CompanyRepository, TickerRepository
-from app.repositories.documents import NewsRepository
+from app.repositories.documents import NewsRepository, RagChunkRepository
 from app.repositories.market import MarketCalendarRepository
 from app.repositories.price import DailyPriceRepository, TechnicalIndicatorRepository
 from app.services.anomalies import AnomalyDetectionService
@@ -40,6 +40,7 @@ from app.services.anomalies.detectors import (
 from app.services.features import FeatureEngineeringService
 from app.services.ingestion import NewsIngestionService, PriceIngestionService
 from app.services.market_calendar_service import MarketCalendarService
+from app.services.rag import DocumentIndexingService, build_embedding_provider
 from app.services.sentiment import build_analyzer
 from app.services.sentiment_service import SentimentScoringService
 
@@ -237,6 +238,40 @@ async def score_sentiment_job(context: JobContext) -> None:
             log.info(
                 "job_succeeded",
                 scored=report.scored,
+                model=report.model_name,
+                duration_seconds=round(report.duration_seconds, 2),
+            )
+        else:
+            log.error("job_failed", error=report.error)
+    except Exception:
+        log.exception("job_failed")
+
+
+async def index_documents_job(context: JobContext) -> None:
+    """Chunk and embed any article not yet indexed by the active model.
+
+    Runs after sentiment scoring so each chunk carries its article's sentiment
+    as filterable metadata -- making "bearish news about Micron last week" a
+    single query rather than a join.
+    """
+    log = logger.bind(job="index_documents")
+    embedding = context.settings.embedding
+    try:
+        service = DocumentIndexingService(
+            embedder=build_embedding_provider(embedding, context.settings.ingestion),
+            news=NewsRepository(context.mongo),
+            chunks=RagChunkRepository(context.mongo),
+            chunk_size=embedding.chunk_size,
+            chunk_overlap=embedding.chunk_overlap,
+            documents_per_run=embedding.documents_per_run,
+        )
+        report = await service.index_pending()
+
+        if report.succeeded:
+            log.info(
+                "job_succeeded",
+                documents=report.documents,
+                chunks=report.chunks,
                 model=report.model_name,
                 duration_seconds=round(report.duration_seconds, 2),
             )

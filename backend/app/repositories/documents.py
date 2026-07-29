@@ -17,7 +17,7 @@ from pymongo.errors import BulkWriteError
 
 from app.core.logging import get_logger
 from app.db.mongo import Collection, MongoDatabase, MongoDocument
-from app.schemas.documents import NewsArticle, SentimentScore
+from app.schemas.documents import NewsArticle, RagChunk, SentimentScore
 
 logger = get_logger(__name__)
 
@@ -202,13 +202,70 @@ class NewsRepository:
         return await self._collection.count_documents({"published_at": {"$gte": since}})
 
 
+#: Fields a query may attach to a result that are not part of the stored
+#: document. ``$meta`` projections add these, and the model forbids extras.
+_PROJECTION_ONLY_FIELDS = frozenset({"score"})
+
+
 def _to_article(document: MongoDocument) -> NewsArticle:
     """Convert a stored document into a validated model.
 
     ``_id`` is stringified because ``ObjectId`` is not JSON-serialisable and
     every consumer -- the API, the anomaly's ``related_document_ids`` -- needs
     a plain string.
+
+    Query-computed fields are stripped first. A text search must project
+    ``{"score": {"$meta": "textScore"}}`` in order to sort by relevance, which
+    attaches a field the strict model rejects -- so relevance ranking and
+    document validation are otherwise mutually exclusive.
     """
-    document = dict(document)
+    document = {key: value for key, value in document.items() if key not in _PROJECTION_ONLY_FIELDS}
     document["_id"] = str(document["_id"])
     return NewsArticle.model_validate(document)
+
+
+class RagChunkRepository:
+    """Reads and idempotent writes over the embedded-chunk collection."""
+
+    def __init__(self, mongo: MongoDatabase) -> None:
+        """Bind the repository to the document store."""
+        self._mongo = mongo
+        self._collection = mongo.collection(Collection.RAG_DOCUMENTS)
+
+    async def replace_for_source(self, source_id: str, chunks: Sequence[RagChunk]) -> int:
+        """Replace every chunk belonging to one document.
+
+        Delete-then-insert rather than upsert-by-index. Re-chunking can produce
+        *fewer* pieces than last time -- a shortened article, a larger chunk
+        size -- and an upsert keyed on ``(source_id, chunk_index)`` would leave
+        the surplus chunks behind as orphans that still answer queries.
+        """
+        await self._collection.delete_many({"source_id": source_id})
+        if not chunks:
+            return 0
+
+        await self._collection.insert_many([chunk.to_document() for chunk in chunks])
+        return len(chunks)
+
+    async def source_ids_for_model(self, model_name: str) -> set[str]:
+        """Return the documents already embedded by a given model.
+
+        Scoped to the model so switching embedders makes every document pending
+        again -- the corpus re-embeds itself with no migration and no flag.
+        """
+        ids = await self._collection.distinct("source_id", {"embedding_model": model_name})
+        return {str(value) for value in ids}
+
+    async def count(self) -> int:
+        """Return the total number of stored chunks."""
+        return await self._collection.count_documents({})
+
+    async def delete_for_model(self, model_name: str) -> int:
+        """Remove every chunk produced by one model.
+
+        Used when a model is retired: its vectors are not comparable with the
+        replacement's, so leaving them would silently poison retrieval with
+        results scored in a different space.
+        """
+        result = await self._collection.delete_many({"embedding_model": model_name})
+        return int(result.deleted_count)
