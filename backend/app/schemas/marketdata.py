@@ -292,3 +292,21 @@ class CapabilitiesResponse(BaseModel):
 
     providers: dict[str, list[str]]
     capabilities: list[str]
+
+
+class CompanyReportResponse(BaseModel):
+    """A generated briefing with the evidence behind it."""
+
+    symbol: str
+    summary: str
+    #: The numbered facts the model was given, returned alongside the prose so a
+    #: reader can check any claim against its source without leaving the panel.
+    #: This is the difference between an analysis and an assertion.
+    evidence: list[str]
+    model: str
+    generated_at: datetime
+    #: False when no language model was reachable and ``summary`` explains that
+    #: the evidence is being shown raw. The UI labels the panel accordingly
+    #: rather than presenting a list of figures as an analysis.
+    generated: bool
+    cached: bool

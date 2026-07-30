@@ -17,11 +17,12 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Path, Query, status
 
-from app.api.deps import MarketDataDep
+from app.api.deps import MarketDataDep, ReportServiceDep
 from app.marketdata.domain import Interval
 from app.schemas.marketdata import (
     CandleSeriesResponse,
     CapabilitiesResponse,
+    CompanyReportResponse,
     EarningsResponse,
     InsiderTransactionResponse,
     MetricsResponse,
@@ -218,3 +219,37 @@ async def get_provider_news(
         }
         for item in items
     ]
+
+
+@router.get(
+    "/{symbol}/report",
+    response_model=CompanyReportResponse,
+    summary="AI briefing for one company",
+    description=(
+        "Generated from facts fetched moments earlier and cached for twelve "
+        "hours. The evidence the model was given is returned alongside the "
+        "prose so every claim can be checked against its source."
+    ),
+    responses=_UPSTREAM,
+)
+async def get_company_report(
+    symbol: SymbolPath,
+    reports: ReportServiceDep,
+    refresh: Annotated[bool, Query(description="Bypass the cache and regenerate.")] = False,
+) -> CompanyReportResponse:
+    """Return a briefing, generating one if none is fresh.
+
+    A GET rather than a POST despite sometimes doing work: it is idempotent,
+    cacheable, and safe to open in a tab. The generation is a cache fill, not a
+    side effect the caller is asking for.
+    """
+    report = await reports.get(symbol, refresh=refresh)
+    return CompanyReportResponse(
+        symbol=report.symbol,
+        summary=report.summary,
+        evidence=list(report.evidence),
+        model=report.model,
+        generated_at=report.generated_at,
+        generated=report.generated,
+        cached=report.cached,
+    )

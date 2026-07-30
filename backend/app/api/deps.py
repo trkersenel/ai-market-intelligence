@@ -38,7 +38,12 @@ from app.repositories import (
     UserRepository,
     WatchlistRepository,
 )
-from app.repositories.documents import ChatRepository, NewsRepository, RagChunkRepository
+from app.repositories.documents import (
+    AiReportRepository,
+    ChatRepository,
+    NewsRepository,
+    RagChunkRepository,
+)
 from app.services.anomalies import AnomalyDetectionService
 from app.services.anomalies.detectors import IsolationForestDetector, ZScoreDetector
 from app.services.auth_service import AuthService
@@ -52,10 +57,11 @@ from app.services.rag import (
     DocumentIndexingService,
     HybridSearchService,
     RagService,
-    build_embedding_provider,
-    build_llm_client,
     build_vector_store,
 )
+from app.services.rag.embeddings import EmbeddingProvider
+from app.services.rag.llm import LlmClient
+from app.services.reports import CompanyReportService
 from app.services.universe import UniverseSyncService
 
 #: `auto_error=False` so a missing header reaches our own dependency and is
@@ -136,6 +142,29 @@ def get_health_service(
 ) -> HealthService:
     """Assemble the health service from its infrastructure dependencies."""
     return HealthService(postgres=postgres, mongo=mongo)
+
+
+def get_llm_client(request: Request) -> LlmClient:
+    """Return the language model client selected once during startup.
+
+    Selection probes the network, so doing it per request would both cost a
+    round trip on every call and let the *same* endpoint answer from different
+    models minute to minute as the probe succeeded or timed out.
+    """
+    client: LlmClient | None = getattr(request.app.state, "llm_client", None)
+    if client is None:  # pragma: no cover - indicates a lifespan wiring bug
+        msg = "The language model client is not initialised."
+        raise ServiceUnavailableError(msg)
+    return client
+
+
+def get_embedding_provider(request: Request) -> EmbeddingProvider:
+    """Return the embedding provider selected once during startup."""
+    provider: EmbeddingProvider | None = getattr(request.app.state, "embedding_provider", None)
+    if provider is None:  # pragma: no cover - indicates a lifespan wiring bug
+        msg = "The embedding provider is not initialised."
+        raise ServiceUnavailableError(msg)
+    return provider
 
 
 def get_market_data(request: Request) -> MarketDataService:
@@ -232,15 +261,16 @@ def get_chunk_repository(
     return RagChunkRepository(mongo)
 
 
-async def get_indexing_service(
+def get_indexing_service(
     settings: Annotated[Settings, Depends(get_app_settings)],
+    embedder: Annotated[EmbeddingProvider, Depends(get_embedding_provider)],
     news: Annotated[NewsRepository, Depends(get_news_repository)],
     chunks: Annotated[RagChunkRepository, Depends(get_chunk_repository)],
 ) -> DocumentIndexingService:
     """Assemble the document indexing service."""
     embedding = settings.embedding
     return DocumentIndexingService(
-        embedder=await build_embedding_provider(embedding, settings.ingestion, settings.ollama),
+        embedder=embedder,
         news=news,
         chunks=chunks,
         chunk_size=embedding.chunk_size,
@@ -252,6 +282,7 @@ async def get_indexing_service(
 async def get_search_service(
     request: Request,
     settings: Annotated[Settings, Depends(get_app_settings)],
+    embedder: Annotated[EmbeddingProvider, Depends(get_embedding_provider)],
     news: Annotated[NewsRepository, Depends(get_news_repository)],
 ) -> HybridSearchService:
     """Assemble the hybrid search service.
@@ -267,11 +298,33 @@ async def get_search_service(
 
     embedding = settings.embedding
     return HybridSearchService(
-        embedder=await build_embedding_provider(embedding, settings.ingestion, settings.ollama),
+        embedder=embedder,
         vector_store=store,
         news=news,
         candidates=embedding.vector_candidates,
         rrf_k=embedding.rrf_k,
+    )
+
+
+def get_ai_report_repository(
+    mongo: Annotated[MongoDatabase, Depends(get_mongo)],
+) -> AiReportRepository:
+    """Assemble the briefing cache."""
+    return AiReportRepository(mongo)
+
+
+def get_report_service(
+    settings: Annotated[Settings, Depends(get_app_settings)],
+    market_data: Annotated[MarketDataService, Depends(get_market_data)],
+    llm_client: Annotated[LlmClient, Depends(get_llm_client)],
+    reports: Annotated[AiReportRepository, Depends(get_ai_report_repository)],
+) -> CompanyReportService:
+    """Assemble the on-demand company briefing service."""
+    return CompanyReportService(
+        market_data=market_data,
+        llm=llm_client,
+        reports=reports,
+        ttl_hours=settings.llm.report_ttl_hours,
     )
 
 
@@ -282,18 +335,17 @@ def get_chat_repository(
     return ChatRepository(mongo)
 
 
-async def get_rag_service(
+def get_rag_service(
     settings: Annotated[Settings, Depends(get_app_settings)],
     search: Annotated[HybridSearchService, Depends(get_search_service)],
+    embedder: Annotated[EmbeddingProvider, Depends(get_embedding_provider)],
+    llm_client: Annotated[LlmClient, Depends(get_llm_client)],
 ) -> RagService:
     """Assemble the question-answering pipeline."""
     llm = settings.llm
-    embedder = await build_embedding_provider(
-        settings.embedding, settings.ingestion, settings.ollama
-    )
     return RagService(
         search=search,
-        llm=await build_llm_client(llm, settings.ingestion, settings.ollama),
+        llm=llm_client,
         relevance_floor=embedder.relevance_floor,
         context_passages=llm.context_passages,
         passage_chars=llm.passage_chars,
@@ -417,6 +469,7 @@ MongoDep = Annotated[MongoDatabase, Depends(get_mongo)]
 HealthServiceDep = Annotated[HealthService, Depends(get_health_service)]
 MarketDataDep = Annotated[MarketDataService, Depends(get_market_data)]
 UniverseSyncDep = Annotated[UniverseSyncService, Depends(get_universe_sync_service)]
+ReportServiceDep = Annotated[CompanyReportService, Depends(get_report_service)]
 NewsRepoDep = Annotated[NewsRepository, Depends(get_news_repository)]
 PriceIngestionDep = Annotated[PriceIngestionService, Depends(get_price_ingestion_service)]
 FeatureServiceDep = Annotated[FeatureEngineeringService, Depends(get_feature_service)]

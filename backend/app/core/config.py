@@ -272,6 +272,11 @@ class LlmSettings(BaseSettings):
     correlation_lookback_hours: Annotated[int, Field(ge=1)] = 72
     correlation_lookahead_hours: Annotated[int, Field(ge=0)] = 24
 
+    #: How long a generated company briefing stays fresh. Twelve hours means one
+    #: written before the open is regenerated after the close -- which is when
+    #: the facts it rests on have actually changed.
+    report_ttl_hours: Annotated[int, Field(ge=1, le=168)] = 12
+
 
 class OllamaSettings(BaseSettings):
     """Local model server for generation and embedding.
@@ -309,9 +314,14 @@ class OllamaSettings(BaseSettings):
     #: carried across models silently either refuses everything or nothing.
     relevance_floor: Annotated[float, Field(ge=0.0, le=1.0)] = 0.571
 
-    #: Kept short: this is a liveness check during provider selection, and a
-    #: slow probe would stall startup for a server that simply is not running.
-    probe_timeout_seconds: Annotated[float, Field(gt=0)] = 2.0
+    #: Liveness check during provider selection. Kept short so a *missing*
+    #: Ollama costs a moment at startup rather than a stall -- but not as short
+    #: as it was: the first call from inside a container has to resolve
+    #: ``host.docker.internal``, measured at 2.16s against the previous 2.0s
+    #: limit. That put selection on a coin flip, and since the report cache is
+    #: keyed by the selected model, it served a previously-degraded report back
+    #: under the wrong provenance.
+    probe_timeout_seconds: Annotated[float, Field(gt=0)] = 6.0
 
     #: Six times the shared ingestion timeout, because this is not a network
     #: call in the usual sense -- the work happens on this machine. A cold model

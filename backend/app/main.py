@@ -28,6 +28,7 @@ from app.db.postgres import PostgresDatabase
 from app.marketdata.cache import ResponseCache
 from app.marketdata.registry import build_registry
 from app.marketdata.service import MarketDataService
+from app.services.rag import build_embedding_provider, build_llm_client
 
 logger = get_logger(__name__)
 
@@ -61,6 +62,19 @@ def _build_lifespan(
             registry=build_registry(settings),
             cache=ResponseCache(),
             settings=settings.marketdata,
+        )
+
+        # Provider selection probes the network, so it happens once per process
+        # rather than once per request. Per-request selection was not merely
+        # wasteful: a probe that timed out on one request and succeeded on the
+        # next made the *same* endpoint answer from a different model minute to
+        # minute, and anything keyed on the model name -- the report cache --
+        # inherited that flapping.
+        app.state.llm_client = await build_llm_client(
+            settings.llm, settings.ingestion, settings.ollama
+        )
+        app.state.embedding_provider = await build_embedding_provider(
+            settings.embedding, settings.ingestion, settings.ollama
         )
 
         # MongoDB has no migration tool, so index creation runs at startup. It

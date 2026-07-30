@@ -327,3 +327,47 @@ def _to_message(document: MongoDocument) -> ChatMessage:
     document = dict(document)
     document["_id"] = str(document["_id"])
     return ChatMessage.model_validate(document)
+
+
+class AiReportRepository:
+    """Cache for generated company briefings."""
+
+    def __init__(self, mongo: MongoDatabase) -> None:
+        """Bind the repository to the document store."""
+        self._collection = mongo.collection(Collection.AI_REPORTS)
+
+    async def get_fresh(
+        self,
+        symbol: str,
+        *,
+        model: str,
+        newer_than: datetime,
+    ) -> MongoDocument | None:
+        """Return the cached briefing if one is recent enough.
+
+        Scoped to the model as well as the symbol. Two models write noticeably
+        different prose, and serving one under the other's name would make the
+        recorded provenance wrong -- which is the one field a reader would use
+        to judge how much weight the analysis deserves.
+        """
+        return await self._collection.find_one(
+            {
+                "symbol": symbol.upper(),
+                "model": model,
+                "generated_at": {"$gte": newer_than},
+            }
+        )
+
+    async def store(self, report: MongoDocument) -> None:
+        """Write a briefing, replacing any previous one for this symbol.
+
+        An upsert rather than an insert: the unique index on (symbol, model)
+        means two tabs opening the same page at once would otherwise have one
+        of them fail on a duplicate key, and a failed *cache write* must never
+        fail the request that produced a perfectly good report.
+        """
+        await self._collection.update_one(
+            {"symbol": report["symbol"], "model": report["model"]},
+            {"$set": report},
+            upsert=True,
+        )

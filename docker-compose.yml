@@ -56,6 +56,12 @@ services:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       MONGO_URI: mongodb://${MONGO_ROOT_USER:-mongo}:${MONGO_ROOT_PASSWORD:-mongo}@mongo:27017/?authSource=admin
+      # Ollama runs on the host, not in the compose network -- it needs the
+      # machine's memory and the model cache, neither of which belongs in an
+      # image. Inside a container "localhost" is the container, so the .env
+      # default silently reaches nothing and every briefing degrades to raw
+      # evidence. The gateway alias is what actually finds the host's Ollama.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL_DOCKER:-http://host.docker.internal:11434}
     ports:
       - "${API_PORT:-8000}:8000"
     depends_on:
@@ -113,6 +119,12 @@ services:
       POSTGRES_PORT: 5432
       MONGO_URI: mongodb://${MONGO_ROOT_USER:-mongo}:${MONGO_ROOT_PASSWORD:-mongo}@mongo:27017/?authSource=admin
       ANALYSIS_USE_FINBERT: "${ANALYSIS_USE_FINBERT:-true}"
+      # Ollama runs on the host, not in the compose network -- it needs the
+      # machine's memory and the model cache, neither of which belongs in an
+      # image. Inside a container "localhost" is the container, so the .env
+      # default silently reaches nothing and every briefing degrades to raw
+      # evidence. The gateway alias is what actually finds the host's Ollama.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL_DOCKER:-http://host.docker.internal:11434}
     depends_on:
       postgres:
         condition: service_healthy

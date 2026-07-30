@@ -35,6 +35,10 @@ class Collection(StrEnum):
     COMPANY_REPORTS = "company_reports"
     EARNINGS_CALL_TRANSCRIPTS = "earnings_call_transcripts"
     RAG_DOCUMENTS = "rag_documents"
+    #: Cached AI briefings, one per symbol per model. Distinct from
+    #: ``LLM_SUMMARIES``, which holds periodic summaries keyed by a period this
+    #: on-demand report does not have.
+    AI_REPORTS = "ai_reports"
     LLM_SUMMARIES = "llm_summaries"
     CHAT_HISTORY = "chat_history"
     USER_PREFERENCES = "user_preferences"

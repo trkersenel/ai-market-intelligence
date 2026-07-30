@@ -133,6 +133,28 @@ INDEX_SPECS: tuple[IndexSpec, ...] = (
         reason="A company's filings, newest first.",
     ),
     IndexSpec(
+        collection=Collection.AI_REPORTS,
+        keys=[("symbol", pymongo.ASCENDING), ("model", pymongo.ASCENDING)],
+        name="uq_ai_report_symbol_model",
+        unique=True,
+        reason=(
+            "One cached briefing per symbol per model. Unique so a page opened "
+            "twice at once cannot store two, and so changing models does not "
+            "serve the previous model's prose under the new one's name."
+        ),
+    ),
+    IndexSpec(
+        collection=Collection.AI_REPORTS,
+        keys=[("generated_at", pymongo.ASCENDING)],
+        name="ttl_ai_report_generated",
+        # Seven days, not the twelve-hour freshness window. The service decides
+        # what is *fresh*; this only stops abandoned symbols accumulating
+        # forever. Expiring at the freshness boundary would delete rows the
+        # service would otherwise overwrite in place, costing an insert.
+        expire_after_seconds=7 * 24 * 3600,
+        reason="Reclaim briefings for symbols nobody has opened in a week.",
+    ),
+    IndexSpec(
         collection=Collection.EARNINGS_CALL_TRANSCRIPTS,
         keys=[("ticker", pymongo.ASCENDING), ("call_date", pymongo.DESCENDING)],
         name="ix_transcript_ticker_date",
