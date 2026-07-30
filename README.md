@@ -193,7 +193,7 @@ why the RSS feeds were replaced with per-ticker financial sources.
 | 6 | Vector store, embeddings, hybrid search | ✅ Done |
 | 7 | RAG pipeline, news-correlation engine, chat API | ✅ Done |
 | 8 | Auth, watchlists, portfolios, WebSocket price stream | ✅ Done |
-| 9 | React frontend: dashboard, heatmap, anomalies, chat | Planned |
+| 9 | React frontend: dashboard, company explorer, chat | ✅ Done |
 | 10 | Deployment, monitoring, documentation polish | Planned |
 
 ---

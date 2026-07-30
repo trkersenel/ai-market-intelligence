@@ -14,5 +14,20 @@ export default defineConfig({
       "/health": { target: process.env.VITE_API_TARGET ?? "http://localhost:8000", changeOrigin: true },
     },
   },
-  build: { outDir: "dist", sourcemap: true },
+  build: {
+    outDir: "dist",
+    sourcemap: true,
+    rollupOptions: {
+      output: {
+        // Recharts and its d3 dependencies are most of the bundle and change
+        // far less often than application code. Splitting them out means a
+        // deploy invalidates the app chunk without forcing every returning
+        // visitor to re-download the charting library.
+        manualChunks: {
+          charts: ["recharts"],
+          vendor: ["react", "react-dom", "react-router-dom", "@tanstack/react-query"],
+        },
+      },
+    },
+  },
 });

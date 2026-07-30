@@ -42,11 +42,24 @@ export class ApiError extends Error {
   }
 }
 
+function isErrorBody(value: unknown): value is ApiErrorBody {
+  if (typeof value !== "object" || value === null || !("error" in value)) return false;
+  const { error } = value;
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    typeof (error as { code?: unknown }).code === "string" &&
+    typeof (error as { message?: unknown }).message === "string"
+  );
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${BASE}${path}`, {
-    ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers },
-  });
+  // Headers built through the Headers API rather than object spread: HeadersInit
+  // may be an array of pairs, and spreading that into an object yields indices.
+  const headers = new Headers(init?.headers);
+  headers.set("Content-Type", "application/json");
+
+  const response = await fetch(`${BASE}${path}`, { ...init, headers });
 
   if (!response.ok) {
     // The backend always returns the envelope, but a proxy or gateway failure
@@ -56,10 +69,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     let message = `Request failed with status ${response.status}`;
     let requestId: string | null = response.headers.get("X-Request-ID");
     try {
-      const body = (await response.json()) as ApiErrorBody;
-      code = body.error?.code ?? code;
-      message = body.error?.message ?? message;
-      requestId = body.error?.request_id ?? requestId;
+      // Parsed as `unknown` and narrowed, not asserted: a proxy or gateway
+      // failure returns whatever it likes, and casting to the envelope type
+      // would be claiming a shape we have not checked.
+      const body: unknown = await response.json();
+      if (isErrorBody(body)) {
+        code = body.error.code;
+        message = body.error.message;
+        requestId = body.error.request_id ?? requestId;
+      }
     } catch {
       /* keep the fallbacks */
     }

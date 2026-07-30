@@ -78,6 +78,20 @@ services:
       - --reload
       - --no-access-log
 
+  frontend:
+    # Static assets behind nginx, which also proxies /api to the API service so
+    # the browser makes same-origin requests and needs no CORS preflight.
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: runtime
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
   worker:
     # The scheduler runs as its own process. Embedding it in the API would run
     # every job once per API replica, and a long ingestion run would compete
