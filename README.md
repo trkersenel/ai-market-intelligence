@@ -164,7 +164,7 @@ ai-market-intelligence/
 | 5 | Sentiment + anomaly detection (Isolation Forest, Z-score) | ✅ Done |
 | 6 | Vector store, embeddings, hybrid search | ✅ Done |
 | 7 | RAG pipeline, news-correlation engine, chat API | ✅ Done |
-| 8 | Auth, watchlists, portfolios, WebSocket price stream | Planned |
+| 8 | Auth, watchlists, portfolios, WebSocket price stream | ✅ Done |
 | 9 | React frontend: dashboard, heatmap, anomalies, chat | Planned |
 | 10 | Deployment, monitoring, documentation polish | Planned |
 

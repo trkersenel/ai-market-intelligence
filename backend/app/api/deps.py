@@ -13,14 +13,17 @@ from functools import cache
 from typing import Annotated
 
 from fastapi import Depends, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients.protocols import PriceProvider
 from app.clients.yfinance_client import YFinancePriceProvider
 from app.core.config import Settings, get_settings
-from app.core.exceptions import ServiceUnavailableError
+from app.core.exceptions import AuthenticationError, ServiceUnavailableError
+from app.core.security import TokenType, decode_token
 from app.db.mongo import MongoDatabase
 from app.db.postgres import PostgresDatabase
+from app.models.user import User
 from app.repositories import (
     AnomalyRepository,
     CompanyRepository,
@@ -36,9 +39,11 @@ from app.repositories import (
 from app.repositories.documents import ChatRepository, NewsRepository, RagChunkRepository
 from app.services.anomalies import AnomalyDetectionService
 from app.services.anomalies.detectors import IsolationForestDetector, ZScoreDetector
+from app.services.auth_service import AuthService
 from app.services.features import FeatureEngineeringService
 from app.services.health_service import HealthService
 from app.services.ingestion import PriceIngestionService
+from app.services.portfolio_service import PortfolioService, WatchlistService
 from app.services.rag import (
     ChatService,
     CorrelationEngine,
@@ -49,6 +54,11 @@ from app.services.rag import (
     build_llm_client,
     build_vector_store,
 )
+
+#: `auto_error=False` so a missing header reaches our own dependency and is
+#: translated into the platform's error envelope, rather than FastAPI emitting a
+#: bare 403 that no other endpoint produces.
+_bearer_scheme = HTTPBearer(auto_error=False, description="JWT access token")
 
 
 def get_app_settings(request: Request) -> Settings:
@@ -293,6 +303,92 @@ def get_correlation_engine(
     )
 
 
+def get_auth_service(
+    users: Annotated[UserRepository, Depends(repository_provider(UserRepository))],
+    watchlists: Annotated[WatchlistRepository, Depends(repository_provider(WatchlistRepository))],
+    settings: Annotated[Settings, Depends(get_app_settings)],
+) -> AuthService:
+    """Assemble the authentication service."""
+    return AuthService(users=users, watchlists=watchlists, settings=settings.security)
+
+
+async def get_current_user(
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer_scheme)],
+    users: Annotated[UserRepository, Depends(repository_provider(UserRepository))],
+    settings: Annotated[Settings, Depends(get_app_settings)],
+) -> User:
+    """Resolve the account the presented access token belongs to.
+
+    Raises:
+        AuthenticationError: If the header is missing, the token is invalid or
+            expired, it is a refresh token rather than an access token, or the
+            account no longer exists or has been deactivated.
+
+    Notes:
+        The user is loaded from the database on every request rather than
+        reconstructed from the token's claims. A token is a bearer of identity,
+        not a snapshot of state: deactivating an account has to take effect
+        immediately, not when the token happens to expire.
+    """
+    if credentials is None or not credentials.credentials:
+        msg = "Not authenticated."
+        raise AuthenticationError(msg)
+
+    claims = decode_token(settings.security, credentials.credentials, expected=TokenType.ACCESS)
+    user = await users.get(claims.subject)
+    if user is None or not user.is_active:
+        msg = "Could not validate credentials."
+        raise AuthenticationError(msg)
+    return user
+
+
+async def get_current_user_from_token(
+    token: str | None, app_state: object, postgres: PostgresDatabase
+) -> User:
+    """Resolve a user from a raw token, outside the HTTP dependency graph.
+
+    WebSocket handshakes carry no ``Authorization`` header that browsers can set,
+    so the token arrives as a query parameter and cannot flow through
+    :func:`get_current_user`. The verification is identical -- same signature
+    check, same access-token-only rule, same fresh database read -- so a revoked
+    or deactivated account is rejected on the socket exactly as on HTTP.
+
+    Raises:
+        AuthenticationError: If the token is absent, invalid, of the wrong type,
+            or its account is gone or deactivated.
+    """
+    if not token:
+        msg = "Not authenticated."
+        raise AuthenticationError(msg)
+
+    settings: Settings = getattr(app_state, "settings", None) or get_settings()
+    claims = decode_token(settings.security, token, expected=TokenType.ACCESS)
+
+    async with postgres.session() as session:
+        user = await UserRepository(session).get(claims.subject)
+        if user is None or not user.is_active:
+            msg = "Could not validate credentials."
+            raise AuthenticationError(msg)
+        return user
+
+
+def get_watchlist_service(
+    watchlists: Annotated[WatchlistRepository, Depends(repository_provider(WatchlistRepository))],
+    tickers: Annotated[TickerRepository, Depends(repository_provider(TickerRepository))],
+) -> WatchlistService:
+    """Assemble the watchlist service."""
+    return WatchlistService(watchlists=watchlists, tickers=tickers)
+
+
+def get_portfolio_service(
+    portfolios: Annotated[PortfolioRepository, Depends(repository_provider(PortfolioRepository))],
+    tickers: Annotated[TickerRepository, Depends(repository_provider(TickerRepository))],
+    prices: Annotated[DailyPriceRepository, Depends(repository_provider(DailyPriceRepository))],
+) -> PortfolioService:
+    """Assemble the portfolio service."""
+    return PortfolioService(portfolios=portfolios, tickers=tickers, prices=prices)
+
+
 SettingsDep = Annotated[Settings, Depends(get_app_settings)]
 SessionDep = Annotated[AsyncSession, Depends(get_db_session)]
 MongoDep = Annotated[MongoDatabase, Depends(get_mongo)]
@@ -301,6 +397,10 @@ NewsRepoDep = Annotated[NewsRepository, Depends(get_news_repository)]
 PriceIngestionDep = Annotated[PriceIngestionService, Depends(get_price_ingestion_service)]
 FeatureServiceDep = Annotated[FeatureEngineeringService, Depends(get_feature_service)]
 AnomalyServiceDep = Annotated[AnomalyDetectionService, Depends(get_anomaly_service)]
+AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
+CurrentUserDep = Annotated[User, Depends(get_current_user)]
+WatchlistServiceDep = Annotated[WatchlistService, Depends(get_watchlist_service)]
+PortfolioServiceDep = Annotated[PortfolioService, Depends(get_portfolio_service)]
 ChunkRepoDep = Annotated[RagChunkRepository, Depends(get_chunk_repository)]
 IndexingServiceDep = Annotated[DocumentIndexingService, Depends(get_indexing_service)]
 SearchServiceDep = Annotated[HybridSearchService, Depends(get_search_service)]

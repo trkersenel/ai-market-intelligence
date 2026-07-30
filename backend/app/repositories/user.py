@@ -62,6 +62,14 @@ class WatchlistRepository(BaseRepository[Watchlist, uuid.UUID]):
             select(Watchlist)
             .where(Watchlist.id == watchlist_id)
             .options(selectinload(Watchlist.items).selectinload(WatchlistItem.ticker))
+            # `populate_existing` is required, not an optimisation toggle.
+            # Services write then re-read within one transaction to return the
+            # new state. Without it the identity map hands back the instance
+            # loaded by the earlier query, `selectinload` declines to refresh an
+            # already-populated collection, and the response reports the state
+            # from *before* the write -- a caller adding a ticker is told the
+            # list still has the old count.
+            .execution_options(populate_existing=True)
         )
         return result.scalar_one_or_none()
 
@@ -154,5 +162,9 @@ class PortfolioRepository(BaseRepository[Portfolio, uuid.UUID]):
             select(Portfolio)
             .where(Portfolio.id == portfolio_id)
             .options(selectinload(Portfolio.positions).selectinload(PortfolioPosition.ticker))
+            # As on watchlists: the write-then-read pattern needs the collection
+            # refreshed, or a newly added position is missing from the response
+            # that is supposed to confirm it.
+            .execution_options(populate_existing=True)
         )
         return result.scalar_one_or_none()

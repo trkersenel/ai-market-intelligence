@@ -35,6 +35,10 @@ dependencies = [
     # --- Machine learning --------------------------------------------------
     "scikit-learn>=1.5",    # Isolation Forest
     "numpy>=1.26",
+    # --- Auth --------------------------------------------------------------
+    "argon2-cffi>=23.1",   # Argon2id: memory-hard, OWASP first choice
+    "pyjwt>=2.9",
+    "email-validator>=2.2",
 ]
 
 [project.optional-dependencies]
@@ -52,6 +56,7 @@ dev = [
     "ruff>=0.8.0",
     "mypy>=1.13.0",
     "pre-commit>=4.0.0",
+    "websockets>=13.0",   # drives the WebSocket route in live checks
 ]
 
 [tool.hatch.build.targets.wheel]

@@ -554,3 +554,98 @@ class TestSeed:
             "sk-hynix",
             "samsung-electronics",
         }
+
+
+@pytest.mark.integration
+class TestWriteThenReadVisibility:
+    """A write followed by a read in one transaction must see the write.
+
+    Regression test for a bug found by driving the live API: adding a ticker
+    returned a watchlist whose count was the value from *before* the add. The
+    identity map returned the already-loaded instance and `selectinload`
+    declined to refresh a populated collection, so the response contradicted
+    the database.
+
+    Only reproducible against a real session -- an in-memory fake has no
+    identity map to go stale.
+    """
+
+    async def test_a_newly_added_watchlist_item_is_visible_on_re_read(
+        self, session: AsyncSession
+    ) -> None:
+        users = UserRepository(session)
+        watchlists = WatchlistRepository(session)
+        tickers = TickerRepository(session)
+
+        user = User(email="visibility@marketintel.io", hashed_password="x")
+        users.add(user)
+        await users.flush()
+
+        watchlist = Watchlist(user_id=user.id, name="Visibility")
+        watchlists.add(watchlist)
+        await watchlists.flush()
+
+        ticker = Ticker(
+            symbol="VISI",
+            display_name="Visibility Test",
+            exchange="NASDAQ",
+            asset_type=AssetType.ETF,
+        )
+        tickers.add(ticker)
+        await tickers.flush()
+
+        # Load once, so the identity map holds an instance with an empty
+        # `items` collection -- exactly the state the bug depended on.
+        first = await watchlists.get_with_items(watchlist.id)
+        assert first is not None
+        assert first.items == []
+
+        await watchlists.add_ticker(watchlist.id, ticker.id)
+        await watchlists.flush()
+
+        second = await watchlists.get_with_items(watchlist.id)
+        assert second is not None
+        assert len(second.items) == 1
+        assert second.items[0].ticker_id == ticker.id
+
+    async def test_a_newly_added_position_is_visible_on_re_read(
+        self, session: AsyncSession
+    ) -> None:
+        users = UserRepository(session)
+        portfolios = PortfolioRepository(session)
+        tickers = TickerRepository(session)
+
+        user = User(email="visibility-pf@marketintel.io", hashed_password="x")
+        users.add(user)
+        await users.flush()
+
+        portfolio = Portfolio(user_id=user.id, name="Visibility")
+        portfolios.add(portfolio)
+        await portfolios.flush()
+
+        ticker = Ticker(
+            symbol="VISP",
+            display_name="Visibility PF Test",
+            exchange="NASDAQ",
+            asset_type=AssetType.ETF,
+        )
+        tickers.add(ticker)
+        await tickers.flush()
+
+        first = await portfolios.get_with_positions(portfolio.id)
+        assert first is not None
+        assert first.positions == []
+
+        session.add(
+            PortfolioPosition(
+                portfolio_id=portfolio.id,
+                ticker_id=ticker.id,
+                quantity=Decimal("10"),
+                average_cost=Decimal("100"),
+            )
+        )
+        await portfolios.flush()
+
+        second = await portfolios.get_with_positions(portfolio.id)
+        assert second is not None
+        assert len(second.positions) == 1
