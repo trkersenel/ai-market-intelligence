@@ -29,7 +29,7 @@ from typing import Any, Protocol, runtime_checkable
 import httpx
 
 from app.clients.http import HttpClient
-from app.core.config import IngestionSettings, LlmSettings
+from app.core.config import IngestionSettings, LlmSettings, OllamaSettings
 from app.core.exceptions import ExternalServiceError
 from app.core.logging import get_logger
 
@@ -292,18 +292,53 @@ class ExtractiveAnswerer:
         return passages
 
 
-def build_llm_client(settings: LlmSettings, ingestion: IngestionSettings) -> LlmClient:
+async def build_llm_client(
+    settings: LlmSettings,
+    ingestion: IngestionSettings,
+    ollama: OllamaSettings | None = None,
+) -> LlmClient:
     """Return the best available answer generator.
 
-    A missing credential downgrades to extraction with a named consequence,
-    never a startup failure.
+    Preference order, and the reasoning behind it:
+
+    1. **Ollama**, when a server is running and the model is pulled. It costs
+       nothing, needs no key, and keeps every question on the machine.
+    2. **OpenAI**, when a key is configured. Better prose, at a price.
+    3. **Extraction**, always available. Reads worse and cannot fabricate.
+
+    Local is preferred over OpenAI rather than the reverse because this platform
+    constrains answers to retrieved context and requires citations, so model
+    scale buys less here than it would on an open-ended task -- and zero cost
+    with zero data egress buys a great deal.
+
+    Async because step 1 requires probing a server. A synchronous version would
+    have to assume Ollama is present, and assuming is how a demo dies.
     """
+    # Imported here rather than at module scope: the Ollama adapter imports
+    # SYSTEM_PROMPT and LlmResponse from this module, so a top-level import
+    # would be circular.
+    from app.services.rag.ollama import OllamaChatClient  # noqa: PLC0415
+
+    if ollama is not None and ollama.enabled:
+        available = await OllamaChatClient.probe(ollama, ingestion)
+        if ollama.chat_model in available:
+            logger.info("llm_selected", provider="ollama", model=ollama.chat_model)
+            return OllamaChatClient(ollama, ingestion)
+        if available:
+            logger.warning(
+                "ollama_model_missing",
+                model=ollama.chat_model,
+                available=sorted(available),
+                hint=f"run `ollama pull {ollama.chat_model}`",
+            )
+
     if OpenAIChatClient.is_configured(settings):
+        logger.info("llm_selected", provider="openai", model=settings.chat_model)
         return OpenAIChatClient(settings, ingestion)
 
     logger.warning(
-        "openai_chat_unavailable",
-        reason="LLM_OPENAI_API_KEY is not set",
+        "generative_llm_unavailable",
+        reason="no Ollama server and no LLM_OPENAI_API_KEY",
         fallback="extractive-v1",
         consequence="answers quote sources verbatim instead of synthesising",
     )

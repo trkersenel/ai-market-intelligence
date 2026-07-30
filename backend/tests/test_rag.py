@@ -15,7 +15,7 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 
-from app.core.config import EmbeddingSettings, IngestionSettings
+from app.core.config import EmbeddingSettings, IngestionSettings, OllamaSettings
 from app.core.exceptions import ExternalServiceError
 from app.models.enums import DataSource
 from app.schemas.documents import NewsArticle
@@ -265,26 +265,55 @@ class TestOpenAIEmbeddings:
 class TestProviderSelection:
     """Choosing between the two embedders."""
 
-    def test_hashing_is_used_when_no_key_is_configured(self) -> None:
-        provider = build_embedding_provider(
+    async def test_hashing_is_used_when_no_key_is_configured(self) -> None:
+        provider = await build_embedding_provider(
             EmbeddingSettings(openai_api_key=None), IngestionSettings()
         )
 
         assert isinstance(provider, HashingEmbeddingProvider)
 
-    def test_openai_is_used_when_a_key_is_configured(self) -> None:
-        provider = build_embedding_provider(
+    async def test_openai_is_used_when_a_key_is_configured(self) -> None:
+        provider = await build_embedding_provider(
             EmbeddingSettings(openai_api_key="k"),  # type: ignore[arg-type]
             IngestionSettings(),
         )
 
         assert isinstance(provider, OpenAIEmbeddingProvider)
 
-    def test_both_produce_the_configured_width(self) -> None:
+    async def test_both_produce_the_configured_width(self) -> None:
         """A width mismatch silently makes stored vectors incomparable."""
         settings = EmbeddingSettings(openai_api_key=None, dimensions=512)
+        provider = await build_embedding_provider(settings, IngestionSettings())
 
-        assert build_embedding_provider(settings, IngestionSettings()).dimensions == 512
+        assert provider.dimensions == 512
+
+    async def test_a_disabled_ollama_is_not_probed(self) -> None:
+        """Selection must not depend on what happens to be running locally.
+
+        Without this, the outcome of every test above would differ between a
+        developer who has Ollama installed and one who does not -- and the suite
+        would pass on one machine and fail on the other for no reason visible in
+        the code.
+        """
+        provider = await build_embedding_provider(
+            EmbeddingSettings(openai_api_key=None),
+            IngestionSettings(),
+            OllamaSettings(enabled=False),
+        )
+
+        assert isinstance(provider, HashingEmbeddingProvider)
+
+    async def test_an_unreachable_ollama_falls_back(self) -> None:
+        """An installed-but-stopped server must degrade, not raise."""
+        provider = await build_embedding_provider(
+            EmbeddingSettings(openai_api_key=None),
+            IngestionSettings(),
+            # Reserved as invalid by RFC 6761, so the probe cannot accidentally
+            # reach something real on a developer's machine.
+            OllamaSettings(base_url="http://ollama.invalid:11434", probe_timeout_seconds=0.05),
+        )
+
+        assert isinstance(provider, HashingEmbeddingProvider)
 
 
 # --- Fusion ----------------------------------------------------------------

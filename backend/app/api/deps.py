@@ -212,7 +212,7 @@ def get_chunk_repository(
     return RagChunkRepository(mongo)
 
 
-def get_indexing_service(
+async def get_indexing_service(
     settings: Annotated[Settings, Depends(get_app_settings)],
     news: Annotated[NewsRepository, Depends(get_news_repository)],
     chunks: Annotated[RagChunkRepository, Depends(get_chunk_repository)],
@@ -220,7 +220,7 @@ def get_indexing_service(
     """Assemble the document indexing service."""
     embedding = settings.embedding
     return DocumentIndexingService(
-        embedder=build_embedding_provider(embedding, settings.ingestion),
+        embedder=await build_embedding_provider(embedding, settings.ingestion, settings.ollama),
         news=news,
         chunks=chunks,
         chunk_size=embedding.chunk_size,
@@ -247,7 +247,7 @@ async def get_search_service(
 
     embedding = settings.embedding
     return HybridSearchService(
-        embedder=build_embedding_provider(embedding, settings.ingestion),
+        embedder=await build_embedding_provider(embedding, settings.ingestion, settings.ollama),
         vector_store=store,
         news=news,
         candidates=embedding.vector_candidates,
@@ -268,10 +268,12 @@ async def get_rag_service(
 ) -> RagService:
     """Assemble the question-answering pipeline."""
     llm = settings.llm
-    embedder = build_embedding_provider(settings.embedding, settings.ingestion)
+    embedder = await build_embedding_provider(
+        settings.embedding, settings.ingestion, settings.ollama
+    )
     return RagService(
         search=search,
-        llm=build_llm_client(llm, settings.ingestion),
+        llm=await build_llm_client(llm, settings.ingestion, settings.ollama),
         relevance_floor=embedder.relevance_floor,
         context_passages=llm.context_passages,
         passage_chars=llm.passage_chars,

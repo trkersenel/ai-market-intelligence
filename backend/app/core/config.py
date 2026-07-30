@@ -273,6 +273,55 @@ class LlmSettings(BaseSettings):
     correlation_lookahead_hours: Annotated[int, Field(ge=0)] = 24
 
 
+class OllamaSettings(BaseSettings):
+    """Local model server for generation and embedding.
+
+    Preferred over OpenAI when reachable: it costs nothing, needs no key, and
+    keeps every article and question on the machine. Selection is automatic --
+    the platform probes for a running server and falls back silently, so an
+    Ollama that is not installed degrades a feature rather than breaking a boot.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="OLLAMA_", extra="ignore")
+
+    enabled: bool = True
+    base_url: str = "http://localhost:11434"
+
+    #: Sized for an 8GB machine. A 3B model leaves room for Docker and a
+    #: browser; a 7B one does not, and swapping is worse than a plainer answer.
+    chat_model: str = "llama3.2:3b"
+    embedding_model: str = "nomic-embed-text"
+
+    #: nomic-embed-text's native width. Not interchangeable with OpenAI's 1536:
+    #: mixing widths in one collection makes cosine undefined, so changing this
+    #: means re-embedding the corpus and rebuilding the index.
+    embedding_dimensions: Annotated[int, Field(ge=64, le=8192)] = 768
+    embedding_batch_size: Annotated[int, Field(ge=1, le=256)] = 16
+
+    temperature: Annotated[float, Field(ge=0.0, le=2.0)] = 0.2
+    max_output_tokens: Annotated[int, Field(ge=64, le=8192)] = 900
+
+    #: Measured, not guessed. Against 400 live articles, top-1 cosine was
+    #: 0.442-0.526 for off-topic questions and 0.616-0.782 for on-topic ones --
+    #: a clean gap, and this is its midpoint, which leaves equal margin on both
+    #: sides. Re-derive with ``python -m app.services.rag.measure_floor`` after
+    #: changing the embedding model; nomic's scale is not OpenAI's, and a floor
+    #: carried across models silently either refuses everything or nothing.
+    relevance_floor: Annotated[float, Field(ge=0.0, le=1.0)] = 0.571
+
+    #: Kept short: this is a liveness check during provider selection, and a
+    #: slow probe would stall startup for a server that simply is not running.
+    probe_timeout_seconds: Annotated[float, Field(gt=0)] = 2.0
+
+    #: Six times the shared ingestion timeout, because this is not a network
+    #: call in the usual sense -- the work happens on this machine. A cold model
+    #: load alone can take half a minute, and generation is bounded by CPU
+    #: rather than by a remote server's latency. Measured: the 20-second
+    #: ingestion default made a *running* Ollama report itself as unreachable
+    #: partway through embedding a corpus.
+    request_timeout_seconds: Annotated[float, Field(gt=0)] = 120.0
+
+
 class MarketDataSettings(BaseSettings):
     """Market data providers and their limits.
 
@@ -430,6 +479,7 @@ class Settings(BaseSettings):
     analysis: AnalysisSettings = Field(default_factory=AnalysisSettings)
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
     marketdata: MarketDataSettings = Field(default_factory=MarketDataSettings)
+    ollama: OllamaSettings = Field(default_factory=OllamaSettings)
     llm: LlmSettings = Field(default_factory=LlmSettings)
     scheduler: SchedulerSettings = Field(default_factory=SchedulerSettings)
 

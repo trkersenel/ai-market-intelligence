@@ -51,6 +51,7 @@ class HttpClient:
         rate_limit: float,
         headers: dict[str, str] | None = None,
         provider: str = "http",
+        timeout_seconds: float | None = None,
         client: httpx.AsyncClient | None = None,
     ) -> None:
         """Build a client for one provider.
@@ -61,6 +62,12 @@ class HttpClient:
             rate_limit: Sustained requests per second for this provider.
             headers: Default headers, e.g. an API key or a required User-Agent.
             provider: Name used in logs.
+            timeout_seconds: Overrides the ingestion timeout for providers in a
+                different latency class. The shared default is sized for REST
+                APIs that answer in under a second; a local model server does
+                inference on the calling machine and can legitimately take a
+                minute, so borrowing that default would report a working server
+                as a dead one.
             client: Pre-built transport, injected by tests to serve recorded
                 responses without a network.
         """
@@ -70,7 +77,7 @@ class HttpClient:
         self._owns_client = client is None
         self._client = client or httpx.AsyncClient(
             base_url=base_url,
-            timeout=httpx.Timeout(settings.request_timeout_seconds),
+            timeout=httpx.Timeout(timeout_seconds or settings.request_timeout_seconds),
             follow_redirects=True,
         )
         # Applied after construction, not only in the constructor above, so an

@@ -32,7 +32,7 @@ from typing import Protocol, runtime_checkable
 import httpx
 
 from app.clients.http import HttpClient
-from app.core.config import EmbeddingSettings, IngestionSettings
+from app.core.config import EmbeddingSettings, IngestionSettings, OllamaSettings
 from app.core.exceptions import ExternalServiceError
 from app.core.logging import get_logger
 
@@ -276,22 +276,48 @@ class HashingEmbeddingProvider:
         return [value / norm for value in vector]
 
 
-def build_embedding_provider(
-    settings: EmbeddingSettings, ingestion: IngestionSettings
+async def build_embedding_provider(
+    settings: EmbeddingSettings,
+    ingestion: IngestionSettings,
+    ollama: OllamaSettings | None = None,
 ) -> EmbeddingProvider:
     """Return the best available embedding provider.
 
-    OpenAI when a key is configured, the hashing provider otherwise. A missing
-    credential is a logged downgrade with a named consequence, never a startup
-    failure.
+    Preference order mirrors the answer generator: local first, then OpenAI,
+    then the lexical fallback.
+
+    The gap between the top two and the bottom one is much larger here than it
+    is for generation. The hashing fallback matches characters, so "memory
+    prices are climbing" and "DRAM ASPs firmed" are unrelated to it -- they
+    share almost no n-grams. Connecting those is the entire reason to embed
+    rather than to index keywords, so a real model is not a refinement of the
+    fallback but a different capability.
+
+    Async because Ollama has to be probed.
     """
+    from app.services.rag.ollama import OllamaEmbeddingProvider  # noqa: PLC0415
+
+    if ollama is not None and ollama.enabled:
+        available = await OllamaEmbeddingProvider.probe(ollama, ingestion)
+        if ollama.embedding_model in available:
+            logger.info("embeddings_selected", provider="ollama", model=ollama.embedding_model)
+            return OllamaEmbeddingProvider(ollama, ingestion)
+        if available:
+            logger.warning(
+                "ollama_model_missing",
+                model=ollama.embedding_model,
+                available=sorted(available),
+                hint=f"run `ollama pull {ollama.embedding_model}`",
+            )
+
     if OpenAIEmbeddingProvider.is_configured(settings):
+        logger.info("embeddings_selected", provider="openai", model=settings.model)
         return OpenAIEmbeddingProvider(settings, ingestion)
 
     logger.warning(
-        "openai_embeddings_unavailable",
-        reason="EMBED_OPENAI_API_KEY is not set",
-        fallback="hashing",
+        "semantic_embeddings_unavailable",
+        reason="no Ollama server and no EMBED_OPENAI_API_KEY",
+        fallback="hashing-v1",
         consequence="retrieval matches wording, not meaning",
     )
     return HashingEmbeddingProvider(dimensions=settings.dimensions)

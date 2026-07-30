@@ -165,8 +165,8 @@ class TestOpenAIChatClient:
         with pytest.raises(ExternalServiceError, match="not configured"):
             OpenAIChatClient(settings, IngestionSettings())
 
-    def test_a_missing_key_degrades_to_extraction(self) -> None:
-        client = build_llm_client(LlmSettings(openai_api_key=None), IngestionSettings())
+    async def test_a_missing_key_degrades_to_extraction(self) -> None:
+        client = await build_llm_client(LlmSettings(openai_api_key=None), IngestionSettings())
 
         assert isinstance(client, ExtractiveAnswerer)
 

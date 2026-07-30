@@ -289,7 +289,9 @@ async def index_documents_job(context: JobContext) -> None:
     embedding = context.settings.embedding
     try:
         service = DocumentIndexingService(
-            embedder=build_embedding_provider(embedding, context.settings.ingestion),
+            embedder=await build_embedding_provider(
+                embedding, context.settings.ingestion, context.settings.ollama
+            ),
             news=NewsRepository(context.mongo),
             chunks=RagChunkRepository(context.mongo),
             chunk_size=embedding.chunk_size,
