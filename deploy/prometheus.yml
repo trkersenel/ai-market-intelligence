@@ -1,0 +1,17 @@
+# Scrape config for the API's /metrics endpoint.
+#
+# 15s matches the default evaluation interval, so a rate() over 1m has four
+# samples to work with -- fewer and short spikes vanish between scrapes.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: market-intel-api
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["api:8000"]
+
+rule_files:
+  - alerts.yml

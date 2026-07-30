@@ -13,8 +13,9 @@ the next tick.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import AsyncIterator, Sequence
+from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
 
 from app.clients.news_clients import (
     NewsApiProvider,
@@ -25,6 +26,7 @@ from app.clients.protocols import NewsProvider
 from app.clients.yfinance_client import YFinancePriceProvider
 from app.core.config import Settings
 from app.core.logging import get_logger
+from app.core.metrics import MetricsRegistry, Timer
 from app.db.mongo import MongoDatabase
 from app.db.postgres import PostgresDatabase
 from app.repositories.anomaly import AnomalyRepository
@@ -62,6 +64,10 @@ class JobContext:
     settings: Settings
     postgres: PostgresDatabase
     mongo: MongoDatabase
+    #: Job outcomes and durations. The worker serves no HTTP, so these are
+    #: written to a file the scheduler's own metrics endpoint would otherwise
+    #: have to exist to expose -- see `metrics_path`.
+    metrics: MetricsRegistry = field(default_factory=MetricsRegistry)
 
     @classmethod
     def create(cls, settings: Settings) -> JobContext:
@@ -76,6 +82,27 @@ class JobContext:
         """Release every pooled connection."""
         await self.postgres.dispose()
         await self.mongo.close()
+
+
+@asynccontextmanager
+async def _job_run(context: JobContext, name: str) -> AsyncIterator[None]:
+    """Time a job, record its outcome, and never let it raise.
+
+    Every job needs identical bookkeeping -- start a timer, log the outcome,
+    increment a counter, swallow the exception -- and repeating it five times is
+    five chances to get one of them subtly wrong. An unhandled exception inside
+    APScheduler is the failure mode this guards: it is invisible in request
+    metrics and, in some configurations, silently kills the schedule.
+    """
+    log = logger.bind(job=name)
+    timer = Timer()
+    try:
+        yield
+    except Exception:
+        context.metrics.observe_job(job=name, outcome="failed", duration_seconds=timer.elapsed)
+        log.exception("job_failed", duration_seconds=round(timer.elapsed, 2))
+    else:
+        context.metrics.observe_job(job=name, outcome="succeeded", duration_seconds=timer.elapsed)
 
 
 async def ingest_prices_job(context: JobContext) -> None:

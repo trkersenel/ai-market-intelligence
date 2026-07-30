@@ -1,0 +1,90 @@
+# Render blueprint.
+#
+# Three services from two images, because they scale and fail differently: the
+# API is request-bound and horizontally scalable, the worker is a singleton with
+# a schedule, and the frontend is static files. Running the scheduler inside the
+# API would execute every job once per replica.
+#
+# Databases are managed rather than containers here -- Supabase for PostgreSQL,
+# MongoDB Atlas for documents and vector search. Atlas is not optional: local
+# MongoDB has no $vectorSearch, so a self-hosted document store silently
+# degrades retrieval to keyword-only.
+
+services:
+  - type: web
+    name: market-intel-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: starter
+    healthCheckPath: /health/ready
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: LOG_RENDERER
+        value: json
+      # Docs are served only outside production; the setting enforces it, this
+      # is belt and braces for an environment that is easy to mis-set.
+      - key: DOCS_ENABLED
+        value: "false"
+      - key: SECURITY_SECRET_KEY
+        generateValue: true
+      - fromGroup: market-intel-secrets
+
+  - type: worker
+    name: market-intel-worker
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    dockerCommand: python -m app.workers
+    plan: standard
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: LOG_RENDERER
+        value: json
+      # The only image that needs torch, and the only one that scores sentiment.
+      - key: INSTALL_ML
+        value: "true"
+      - key: ANALYSIS_USE_FINBERT
+        value: "true"
+      - fromGroup: market-intel-secrets
+
+  - type: web
+    name: market-intel-frontend
+    runtime: docker
+    dockerfilePath: ./frontend/Dockerfile
+    dockerContext: ./frontend
+    plan: starter
+    envVars:
+      - key: API_UPSTREAM
+        fromService:
+          name: market-intel-api
+          type: web
+          property: host
+
+envVarGroups:
+  # Set once, in the dashboard, and shared by both backend services. Never in
+  # this file: it is committed.
+  - name: market-intel-secrets
+    envVars:
+      - key: POSTGRES_HOST
+        sync: false
+      - key: POSTGRES_USER
+        sync: false
+      - key: POSTGRES_PASSWORD
+        sync: false
+      - key: POSTGRES_DB
+        sync: false
+      - key: MONGO_URI
+        sync: false
+      - key: MONGO_DATABASE
+        sync: false
+      - key: LLM_OPENAI_API_KEY
+        sync: false
+      - key: EMBED_OPENAI_API_KEY
+        sync: false
+      - key: INGEST_NEWSAPI_KEY
+        sync: false
+      - key: INGEST_SEC_USER_AGENT
+        sync: false

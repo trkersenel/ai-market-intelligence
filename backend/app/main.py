@@ -15,11 +15,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.endpoints import health as health_endpoints
+from app.api.v1.endpoints import metrics as metrics_endpoints
 from app.api.v1.router import api_router
 from app.core.config import Settings, get_settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging, get_logger
-from app.core.middleware import RequestContextMiddleware
+from app.core.metrics import MetricsRegistry
+from app.core.middleware import MetricsMiddleware, RequestContextMiddleware
 from app.db.mongo import MongoDatabase
 from app.db.mongo_indexes import create_indexes
 from app.db.postgres import PostgresDatabase
@@ -94,7 +96,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # Order matters: CORS is added last so it wraps outermost and can attach
     # headers to responses produced by the inner middleware and handlers.
+    metrics = MetricsRegistry()
+    app.state.metrics = metrics
     app.add_middleware(RequestContextMiddleware, settings=settings.observability)
+    app.add_middleware(MetricsMiddleware, metrics=metrics)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -111,6 +116,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
 
     app.include_router(health_endpoints.router, prefix="/health")
+    app.include_router(metrics_endpoints.router)
     app.include_router(api_router, prefix=settings.api_v1_prefix)
 
     return app

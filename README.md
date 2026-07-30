@@ -181,6 +181,28 @@ why the RSS feeds were replaced with per-ticker financial sources.
 
 ---
 
+## Monitoring
+
+`/metrics` serves Prometheus exposition. Scrape config and alert rules are in
+[deploy/](deploy/).
+
+Four metric families, and the fourth is the one worth paging on:
+
+- `http_requests_total` and `http_request_duration_seconds`, labelled by route
+  *template*. `/api/v1/prices/{symbol}` is one series; the raw path would be one
+  per ticker — unbounded cardinality, and the standard way to take down a
+  Prometheus server with your own instrumentation.
+- `scheduler_jobs_total` and `scheduler_job_duration_seconds`. Jobs swallow their
+  exceptions so a failure cannot kill the schedule, which means a broken job is
+  invisible without these.
+- **`data_age_seconds`.** Every request can be fast and successful while
+  ingestion has been dead for two days. Nothing else distinguishes those states.
+
+See [docs/deployment.md](docs/deployment.md) for topology, managed services and
+the first-deploy sequence.
+
+---
+
 ## Roadmap
 
 | # | Milestone | Status |
@@ -194,7 +216,7 @@ why the RSS feeds were replaced with per-ticker financial sources.
 | 7 | RAG pipeline, news-correlation engine, chat API | ✅ Done |
 | 8 | Auth, watchlists, portfolios, WebSocket price stream | ✅ Done |
 | 9 | React frontend: dashboard, company explorer, chat | ✅ Done |
-| 10 | Deployment, monitoring, documentation polish | Planned |
+| 10 | Deployment, monitoring, documentation polish | ✅ Done |
 
 ---
 

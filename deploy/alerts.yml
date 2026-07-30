@@ -1,0 +1,63 @@
+# Alerting rules.
+#
+# Each fires on a symptom a user would notice, not on a cause. "CPU is high" is
+# not an alert; "answers are stale" is.
+
+groups:
+  - name: market-intel
+    rules:
+      # The alert that matters most, and the one request metrics cannot give
+      # you: the API can be perfectly healthy while ingestion has been broken
+      # for two days and every answer is quietly out of date.
+      - alert: PriceDataStale
+        expr: data_age_seconds{dataset="daily_prices"} > 259200
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Price data is more than three days old"
+          description: >-
+            The newest completed session is {{ $value | humanizeDuration }} old.
+            Three days spans a long weekend without firing; beyond that,
+            ingestion has genuinely stopped.
+
+      - alert: ScheduledJobFailing
+        expr: increase(scheduler_jobs_total{outcome="failed"}[1h]) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Job {{ $labels.job }} is failing repeatedly"
+          description: >-
+            Jobs swallow their exceptions by design so a failure cannot kill the
+            schedule, which means a broken job is silent unless this fires.
+
+      - alert: ApiErrorRateHigh
+        expr: >-
+          sum(rate(http_requests_total{status=~"5.."}[5m]))
+          / sum(rate(http_requests_total[5m])) > 0.05
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Over 5% of requests are failing"
+
+      - alert: ApiLatencyHigh
+        expr: >-
+          histogram_quantile(
+            0.95,
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le, route)
+          ) > 2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "p95 latency on {{ $labels.route }} exceeds 2s"
+
+      - alert: ApiDown
+        expr: up{job="market-intel-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "The API is not responding to scrapes"

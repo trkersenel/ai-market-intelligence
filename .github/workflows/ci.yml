@@ -96,9 +96,33 @@ jobs:
           name: coverage
           path: backend/coverage.xml
 
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      # `npm ci` rather than `npm install`: it installs exactly the lockfile and
+      # fails if the manifest and lock have drifted, which is the whole point of
+      # committing a lockfile.
+      - run: npm ci
+      - name: Types
+        run: npx tsc --noEmit
+      - name: Lint
+        run: npx eslint . --max-warnings 0
+      - name: Build
+        run: npm run build
+
   docker:
     name: Docker image
-    needs: [lint, typecheck, test]
+    needs: [lint, typecheck, test, frontend]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -110,6 +134,15 @@ jobs:
           push: false
           load: true
           tags: market-intel-api:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Build frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: false
+          load: true
+          tags: market-intel-frontend:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Smoke-test the image starts and answers liveness
