@@ -65,7 +65,7 @@ A service never imports FastAPI; a repository never imports a service. See
 | AI               | OpenAI (chat + embeddings), FinBERT sentiment, hybrid retrieval   |
 | Data             | yfinance, NewsAPI, RSS, SEC EDGAR                                 |
 | ML               | Isolation Forest + Z-score anomaly detection, technical indicators |
-| Frontend         | React, Vite, TailwindCSS, Recharts / Plotly                       |
+| Frontend         | Next.js (App Router), React 19, TypeScript, Tailwind v4, TanStack Query, Recharts |
 | Ops              | Docker, docker compose, GitHub Actions, structlog                 |
 
 ---
@@ -215,7 +215,7 @@ the first-deploy sequence.
 | 6 | Vector store, embeddings, hybrid search | ✅ Done |
 | 7 | RAG pipeline, news-correlation engine, chat API | ✅ Done |
 | 8 | Auth, watchlists, portfolios, WebSocket price stream | ✅ Done |
-| 9 | React frontend: dashboard, company explorer, chat | ✅ Done |
+| 9 | Next.js terminal UI: dashboard, universe search, company page, AI briefing | ✅ Done |
 | 10 | Deployment, monitoring, documentation polish | ✅ Done |
 
 ---

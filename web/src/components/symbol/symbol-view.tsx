@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useState } from "react";
 import { Activity, ExternalLink, Info } from "lucide-react";
 import { PriceChart } from "@/components/chart/price-chart";
+import { ReportPanel } from "@/components/symbol/report-panel";
 import {
   EarningsPanel,
   InsidersPanel,
@@ -102,6 +103,7 @@ export function SymbolView({ symbol }: { symbol: string }) {
 
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
+          <ReportPanel symbol={symbol} />
           <MetricsPanel symbol={symbol} />
           <EarningsPanel symbol={symbol} />
           <InsidersPanel symbol={symbol} />
@@ -211,7 +213,12 @@ function Header({
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-semibold tracking-tight">{symbol}</h1>
             {exchange ? <Badge>{exchange}</Badge> : null}
-            {isTracked ? (
+            {/* Three states, not two. While the listing query is in flight
+                `isTracked` is undefined, and a plain ternary renders that as
+                "Browse only" -- asserting a fact that is merely unknown, and
+                often the wrong one, until it flips a moment later. Unknown
+                renders as nothing. */}
+            {isTracked === undefined ? null : isTracked ? (
               <Badge tone="accent">
                 <Activity size={9} aria-hidden />
                 Analysed

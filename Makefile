@@ -17,16 +17,16 @@ env: ## Create .env from the template if it does not exist
 	@test -f .env || (cp .env.example .env && echo "Created .env from .env.example")
 
 .PHONY: install-frontend
-install-frontend: ## Install frontend dependencies
-	cd frontend && npm install
+install-frontend: ## Install web dependencies
+	cd web && npm install
 
 .PHONY: dev-frontend
-dev-frontend: ## Run the Vite dev server against a local API
-	cd frontend && npm run dev
+dev-frontend: ## Run the Next.js dev server against a local API
+	cd web && npm run dev
 
 .PHONY: check-frontend
-check-frontend: ## Typecheck, lint and build the frontend
-	cd frontend && npx tsc --noEmit && npx eslint . --max-warnings 0 && npm run build
+check-frontend: ## Typecheck, lint and build the web app
+	cd web && npx tsc --noEmit && npx eslint . --max-warnings 0 && npm run build
 
 .PHONY: install
 install: ## Install backend dependencies into a local virtualenv

@@ -168,6 +168,27 @@ export interface ProviderNewsItem {
   image_url: string | null;
 }
 
+/** A generated briefing and the evidence behind it. */
+export interface CompanyReport {
+  symbol: string;
+  summary: string;
+  /**
+   * The numbered facts the model was given. Returned so a reader can check any
+   * claim against its source without leaving the panel -- the difference
+   * between an analysis and an assertion.
+   */
+  evidence: string[];
+  model: string;
+  generated_at: string;
+  /**
+   * False when no language model was reachable and `summary` says so. The panel
+   * must label this honestly rather than presenting a list of figures as an
+   * analysis.
+   */
+  generated: boolean;
+  cached: boolean;
+}
+
 /** What each configured provider can serve. */
 export interface Capabilities {
   providers: Record<string, string[]>;

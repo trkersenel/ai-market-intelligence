@@ -51,17 +51,20 @@ services:
       - fromGroup: market-intel-secrets
 
   - type: web
-    name: market-intel-frontend
+    name: market-intel-web
     runtime: docker
-    dockerfilePath: ./frontend/Dockerfile
-    dockerContext: ./frontend
+    dockerfilePath: ./web/Dockerfile
+    dockerContext: ./web
     plan: starter
     envVars:
-      - key: API_UPSTREAM
-        fromService:
-          name: market-intel-api
-          type: web
-          property: host
+      # Consumed by the Dockerfile's ARG of the same name, because Next
+      # substitutes NEXT_PUBLIC_* at *compile* time -- a value injected only at
+      # runtime never reaches the client bundle. Two consequences worth knowing:
+      # pointing the app at a different API requires a rebuild, not a restart,
+      # and this cannot use `fromService`, which yields a bare host with no
+      # scheme rather than the absolute URL the browser needs.
+      - key: NEXT_PUBLIC_API_URL
+        sync: false
 
 envVarGroups:
   # Set once, in the dashboard, and shared by both backend services. Never in

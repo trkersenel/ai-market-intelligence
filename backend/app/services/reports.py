@@ -75,6 +75,25 @@ class _Evidence:
 
     lines: list[str] = field(default_factory=list)
 
+    def add_money(self, label: str, value: Decimal | float | None) -> None:
+        """Record a large monetary figure at human scale.
+
+        Two problems solved at once. The provider adapter already converts
+        Finnhub's millions to absolute dollars, so a label saying "millions"
+        would misstate the unit by a factor of a million -- and a model that
+        trusts the label reports NVIDIA at $4.6 quintillion. And a raw
+        "4,656,563,865,378.91" is a figure the model reproduces digit for digit
+        into prose no analyst would write.
+        """
+        if value is None:
+            return
+        amount = float(value)
+        for threshold, suffix in ((1e12, "trillion"), (1e9, "billion"), (1e6, "million")):
+            if abs(amount) >= threshold:
+                self.lines.append(f"{label}: {amount / threshold:,.2f} {suffix} USD")
+                return
+        self.lines.append(f"{label}: {amount:,.2f} USD")
+
     def add(self, label: str, value: object, *, unit: str = "") -> None:
         """Record one fact, skipping anything the provider did not supply.
 
@@ -276,7 +295,7 @@ def _add_profile(evidence: _Evidence, profile: Any) -> None:
     evidence.add("Company", profile.name)
     evidence.add("Industry", profile.industry)
     evidence.add("Country", profile.country)
-    evidence.add("Market capitalisation (USD millions)", profile.market_cap)
+    evidence.add_money("Market capitalisation", profile.market_cap)
 
 
 def _add_quote(evidence: _Evidence, quote: Any) -> None:

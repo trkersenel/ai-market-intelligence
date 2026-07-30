@@ -16,6 +16,7 @@ import type {
   Capabilities,
   CandleSeries,
   CompanyProfile,
+  CompanyReport,
   Earnings,
   InsiderTransaction,
   KeyMetrics,
@@ -47,6 +48,7 @@ export const keys = {
   insiders: (symbol: string) => ["market", "insiders", symbol] as const,
   earnings: (symbol: string) => ["market", "earnings", symbol] as const,
   news: (symbol: string) => ["market", "news", symbol] as const,
+  report: (symbol: string) => ["market", "report", symbol] as const,
 };
 
 /**
@@ -214,6 +216,27 @@ export function useCompanyNews(symbol: string, options?: Options<ProviderNewsIte
       api.get<ProviderNewsItem[]>(`/market/${symbol}/news`, { params: { days: 14 }, signal }),
     staleTime: 5 * MINUTE,
     retry,
+    ...options,
+  });
+}
+
+/**
+ * The AI briefing.
+ *
+ * Cold generation runs a local model and takes roughly forty seconds; the
+ * backend then caches it for twelve hours, so this is slow once per symbol per
+ * day and instant thereafter.
+ *
+ * That shape drives the settings. There is no timeout to race, no refetch on
+ * an interval, and no retry -- a second attempt would queue another forty
+ * seconds of inference behind the first for the same answer.
+ */
+export function useCompanyReport(symbol: string, options?: Options<CompanyReport>) {
+  return useQuery({
+    queryKey: keys.report(symbol),
+    queryFn: ({ signal }) => api.get<CompanyReport>(`/market/${symbol}/report`, { signal }),
+    staleTime: 12 * HOUR,
+    retry: false,
     ...options,
   });
 }

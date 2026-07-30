@@ -84,16 +84,21 @@ services:
       - --reload
       - --no-access-log
 
-  frontend:
-    # Static assets behind nginx, which also proxies /api to the API service so
-    # the browser makes same-origin requests and needs no CORS preflight.
+  web:
+    # The Next.js standalone server. The browser calls the API directly rather
+    # than through a reverse proxy, so CORS_ORIGINS on the API is what makes
+    # this work -- see the api service's env_file.
     build:
-      context: ./frontend
+      context: ./web
       dockerfile: Dockerfile
       target: runtime
+      args:
+        # Baked into the client bundle at build time, not read at runtime.
+        # Changing it requires rebuilding the image.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     restart: unless-stopped
     ports:
-      - "${FRONTEND_PORT:-3000}:80"
+      - "${FRONTEND_PORT:-3000}:3000"
     depends_on:
       api:
         condition: service_healthy

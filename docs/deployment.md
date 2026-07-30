@@ -9,7 +9,7 @@ differently, not for tidiness:
 | --- | --- | --- | --- |
 | API | `backend/Dockerfile` | Stateless, horizontally scalable | Request-bound |
 | Worker | same, `INSTALL_ML=true` | **Singleton** | Runs the schedule |
-| Frontend | `frontend/Dockerfile` | Static + nginx | No runtime |
+| Web | `web/Dockerfile` | Next.js standalone server | Node 22 |
 
 **The worker must be a singleton.** Every job is idempotent, so a second replica
 would not corrupt data — but it would double every outbound API call, and free

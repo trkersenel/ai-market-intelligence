@@ -308,3 +308,39 @@ class TestCache:
 
         assert report.symbol == "MU"
         assert repository.writes[0]["symbol"] == "MU"
+
+
+class TestMonetaryScale:
+    """Large money figures given to the model."""
+
+    @pytest.mark.parametrize(
+        ("amount", "expected"),
+        [
+            (Decimal("4656563865378.91"), "4.66 trillion USD"),
+            (Decimal("918433735531.99"), "918.43 billion USD"),
+            (Decimal("45000000"), "45.00 million USD"),
+            (Decimal("4500"), "4,500.00 USD"),
+        ],
+        ids=["trillions", "billions", "millions", "small"],
+    )
+    async def test_market_cap_is_scaled_and_correctly_labelled(
+        self, amount: Decimal, expected: str
+    ) -> None:
+        """Market cap is scaled to a human unit and labelled with it.
+
+        The original bug: the line read "(USD millions)" over a figure the
+        adapter had already converted to absolute dollars. A model trusting the
+        label would report NVIDIA's market cap as $4.6 quintillion. And a raw
+        fifteen-digit number gets reproduced digit for digit into prose no
+        analyst would write.
+        """
+        market = FakeMarketData(
+            profile=CompanyProfile(symbol="MU", name="Example", market_cap=amount)
+        )
+        llm = FakeLlm()
+
+        await _service(market, llm, FakeReportRepository()).get("MU")
+
+        assert llm.context is not None
+        assert f"Market capitalisation: {expected}" in llm.context
+        assert "millions)" not in llm.context
