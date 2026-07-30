@@ -153,6 +153,34 @@ ai-market-intelligence/
 
 ---
 
+## FinBERT sentiment
+
+The worker image ships FinBERT (`ProsusAI/finbert`); the API image does not,
+since only the worker scores sentiment. torch comes from the CPU-only index —
+the default Linux wheel bundles ~2.5GB of CUDA libraries for a container that
+will never see a GPU.
+
+```bash
+make up                       # worker builds with the ml extra by default
+INSTALL_ML=false make up      # lean worker; falls back to lexicon sentiment
+```
+
+What the model buys, measured on the live corpus:
+
+| Headline | Lexicon | FinBERT |
+| --- | --- | --- |
+| "SK Hynix's Profits Explode 550%, **but** its $31bn spending…" | bullish | **bearish** −0.68 |
+| "Samsung delivers record profits, **but** the shares…" | bullish | **bearish** −0.87 |
+| "Chip selloff **overblown**, UBS says" | bearish | **neutral** −0.29 |
+
+A keyword matcher has no syntax, so it cannot see that a contrastive clause
+inverts the story. The two analysers agree on only 61% of a 200-article
+corpus, and the disagreements are almost entirely of this kind. FinBERT is not
+flawless — it still scores consumer-hardware reviews as market news, which is
+why the RSS feeds were replaced with per-ticker financial sources.
+
+---
+
 ## Roadmap
 
 | # | Milestone | Status |

@@ -79,13 +79,18 @@ services:
       - --no-access-log
 
   worker:
-    # The scheduler runs as its own process, from the same image. Embedding it
-    # in the API would run every job once per API replica, and a long ingestion
-    # run would compete with request handling for the same event loop.
+    # The scheduler runs as its own process. Embedding it in the API would run
+    # every job once per API replica, and a long ingestion run would compete
+    # with request handling for the same event loop.
+    #
+    # Built with the `ml` extra, unlike the API: sentiment scoring runs here, so
+    # this is the only image that needs torch. The API stays lean.
     build:
       context: ./backend
       dockerfile: Dockerfile
       target: runtime
+      args:
+        INSTALL_ML: "${INSTALL_ML:-true}"
     restart: unless-stopped
     env_file:
       - .env
@@ -93,6 +98,7 @@ services:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       MONGO_URI: mongodb://${MONGO_ROOT_USER:-mongo}:${MONGO_ROOT_PASSWORD:-mongo}@mongo:27017/?authSource=admin
+      ANALYSIS_USE_FINBERT: "${ANALYSIS_USE_FINBERT:-true}"
     depends_on:
       postgres:
         condition: service_healthy
@@ -100,6 +106,9 @@ services:
         condition: service_healthy
     volumes:
       - ./backend/app:/app/app:ro
+      # Model weights persist across restarts. Without this the worker
+      # re-downloads 440MB from Hugging Face on every container recreate.
+      - huggingface_cache:/app/.cache/huggingface
     command: ["python", "-m", "app.workers"]
     healthcheck:
       # The worker serves no HTTP. It rewrites a heartbeat file from inside the
@@ -122,3 +131,4 @@ services:
 volumes:
   postgres_data:
   mongo_data:
+  huggingface_cache:

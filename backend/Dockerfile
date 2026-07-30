@@ -12,6 +12,12 @@
 # ---------------------------------------------------------------------------
 FROM python:3.12-slim-bookworm AS builder
 
+# Whether to install the optional `ml` extra (torch + transformers, ~2GB).
+# Off by default: the API never needs it, and every deploy of the API would
+# otherwise pull two gigabytes to run code it does not execute. The worker
+# image is built with it on, so FinBERT runs where sentiment scoring runs.
+ARG INSTALL_ML=false
+
 ENV PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
@@ -28,13 +34,27 @@ COPY app/__init__.py ./app/
 
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
-RUN pip install --upgrade pip setuptools wheel \
-    && pip install .
+RUN pip install --upgrade pip setuptools wheel && pip install .
+
+# torch from the CPU-only index, not PyPI. The default Linux wheel bundles
+# the CUDA runtime and cuDNN -- roughly 2.5GB of GPU libraries for a
+# container that will never see a GPU. The CPU build is an order of
+# magnitude smaller and identical for inference here, which is what makes
+# shipping FinBERT in the worker image practical at all.
+RUN if [ "$INSTALL_ML" = "true" ]; then \
+        pip install --index-url https://download.pytorch.org/whl/cpu torch \
+        && pip install "transformers>=4.44"; \
+    fi
 
 # ---------------------------------------------------------------------------
 # Stage 2 - runtime
 # ---------------------------------------------------------------------------
 FROM python:3.12-slim-bookworm AS runtime
+
+# Where transformers caches downloaded weights. Set explicitly and owned by
+# the app user: the default is under $HOME, which a read-only or differently
+# owned root filesystem may not permit writing to.
+ENV HF_HOME=/app/.cache/huggingface
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -50,6 +70,7 @@ RUN apt-get update \
 COPY --from=builder /opt/venv /opt/venv
 
 WORKDIR /app
+RUN mkdir -p /app/.cache/huggingface && chown -R appuser:appuser /app/.cache
 COPY --chown=appuser:appuser alembic.ini ./
 COPY --chown=appuser:appuser alembic ./alembic
 COPY --chown=appuser:appuser app ./app

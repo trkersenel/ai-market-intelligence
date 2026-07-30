@@ -289,3 +289,99 @@ class TestSentimentScoringService:
         report = await service.score_pending()
 
         assert report.model_name == "lexicon-v1"
+
+
+# --- FinBERT ---------------------------------------------------------------
+
+pytestmark_ml = pytest.mark.skipif(
+    not FinBertSentimentAnalyzer.is_available(),
+    reason="the optional `ml` extra (torch + transformers) is not installed",
+)
+
+
+@pytest.mark.ml
+@pytestmark_ml
+class TestFinBertAdapter:
+    """Exercises the real model.
+
+    Marked `ml` and skipped when torch is absent, so CI never pays 2GB for
+    confidence in code that is ours only at the adapter boundary. These are the
+    tests that establish the adapter actually drives the model correctly --
+    everything else about FinBERT is Hugging Face's to get right.
+    """
+
+    async def test_it_reads_a_contrastive_clause(self) -> None:
+        """The reason FinBERT exists in this platform.
+
+        The lexicon calls "beats estimates but cuts guidance" neutral, because it
+        sees one bullish and one bearish term and has no syntax to weigh them.
+        A model that cannot get this right adds nothing over the keyword matcher.
+        """
+        score = await FinBertSentimentAnalyzer().score(
+            "Micron beats estimates but cuts guidance for the next quarter"
+        )
+
+        assert score.label is Sentiment.BEARISH
+        assert score.polarity < 0
+
+    async def test_it_reads_a_clearly_bearish_headline(self) -> None:
+        score = await FinBertSentimentAnalyzer().score(
+            "Intel warns of weak demand; shares plunged after the downgrade"
+        )
+
+        assert score.label is Sentiment.BEARISH
+
+    async def test_it_reads_a_clearly_bullish_headline(self) -> None:
+        score = await FinBertSentimentAnalyzer().score(
+            "Micron beats estimates and raises guidance on record HBM demand"
+        )
+
+        assert score.label is Sentiment.BULLISH
+
+    async def test_an_announcement_without_direction_is_neutral(self) -> None:
+        score = await FinBertSentimentAnalyzer().score(
+            "TSMC will hold its annual shareholder meeting in June"
+        )
+
+        assert score.label is Sentiment.NEUTRAL
+
+    async def test_labels_come_from_the_checkpoint_not_a_hardcoded_order(self) -> None:
+        """Assuming an index order would break silently on a re-exported model."""
+        analyzer = FinBertSentimentAnalyzer()
+        await analyzer.score("A headline")
+
+        assert set(analyzer._labels) == {"positive", "negative", "neutral"}
+
+    async def test_scores_are_bounded(self) -> None:
+        scores = await FinBertSentimentAnalyzer().score_many(
+            ["Shares surged", "Shares collapsed", "The company filed a document"]
+        )
+
+        for score in scores:
+            assert 0.0 <= score.confidence <= 1.0
+            assert -1.0 <= score.polarity <= 1.0
+
+    async def test_batching_matches_individual_scoring(self) -> None:
+        """A misaligned batch would pair each headline with its neighbour's score."""
+        analyzer = FinBertSentimentAnalyzer()
+        texts = [
+            "Micron beats estimates and raises guidance",
+            "Intel warns of weak demand and cuts its outlook",
+            "TSMC will hold its annual meeting in June",
+        ]
+
+        batched = await analyzer.score_many(texts)
+        individual = [await analyzer.score(text) for text in texts]
+
+        assert [s.label for s in batched] == [s.label for s in individual]
+
+    async def test_an_empty_batch_does_not_touch_the_model(self) -> None:
+        assert await FinBertSentimentAnalyzer().score_many([]) == []
+
+    async def test_the_model_name_is_the_checkpoint_id(self) -> None:
+        score = await FinBertSentimentAnalyzer().score("Shares surged")
+
+        assert score.model_name == "ProsusAI/finbert"
+
+    async def test_it_is_selected_when_configured_and_available(self) -> None:
+        assert isinstance(build_analyzer(prefer_finbert=True), FinBertSentimentAnalyzer)
