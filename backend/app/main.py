@@ -25,6 +25,9 @@ from app.core.middleware import MetricsMiddleware, RequestContextMiddleware
 from app.db.mongo import MongoDatabase
 from app.db.mongo_indexes import create_indexes
 from app.db.postgres import PostgresDatabase
+from app.marketdata.cache import ResponseCache
+from app.marketdata.registry import build_registry
+from app.marketdata.service import MarketDataService
 
 logger = get_logger(__name__)
 
@@ -50,6 +53,16 @@ def _build_lifespan(
         app.state.postgres = PostgresDatabase(settings.postgres)
         app.state.mongo = MongoDatabase(settings.mongo)
 
+        # One registry and one cache for the process. Both are stateful in ways
+        # that make per-request construction actively harmful: the cache exists
+        # to be shared, and each provider holds a rate limiter whose budget is
+        # only meaningful if every caller draws from the same one.
+        app.state.market_data = MarketDataService(
+            registry=build_registry(settings),
+            cache=ResponseCache(),
+            settings=settings.marketdata,
+        )
+
         # MongoDB has no migration tool, so index creation runs at startup. It
         # is idempotent and non-fatal: a failure is logged and the API still
         # serves, because a missing index degrades latency rather than
@@ -63,6 +76,7 @@ def _build_lifespan(
         try:
             yield
         finally:
+            await app.state.market_data.aclose()
             await app.state.postgres.dispose()
             await app.state.mongo.close()
             logger.info("application_stopped")

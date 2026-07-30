@@ -29,9 +29,13 @@ from app.core.logging import get_logger
 from app.core.metrics import MetricsRegistry, Timer
 from app.db.mongo import MongoDatabase
 from app.db.postgres import PostgresDatabase
+from app.marketdata.cache import ResponseCache
+from app.marketdata.registry import build_registry
+from app.marketdata.service import MarketDataService
 from app.repositories.anomaly import AnomalyRepository
 from app.repositories.company import CompanyRepository, TickerRepository
 from app.repositories.documents import NewsRepository, RagChunkRepository
+from app.repositories.listing import ListingRepository
 from app.repositories.market import MarketCalendarRepository
 from app.repositories.price import DailyPriceRepository, TechnicalIndicatorRepository
 from app.services.anomalies import AnomalyDetectionService
@@ -49,6 +53,7 @@ from app.services.rag import (
 )
 from app.services.sentiment import build_analyzer
 from app.services.sentiment_service import SentimentScoringService
+from app.services.universe import UniverseSyncService
 
 logger = get_logger(__name__)
 
@@ -64,6 +69,11 @@ class JobContext:
     settings: Settings
     postgres: PostgresDatabase
     mongo: MongoDatabase
+    #: One facade for the process, holding the provider rate limiters. Built
+    #: here rather than per job because a limiter is only meaningful if every
+    #: caller draws from the same budget -- two instances would each believe
+    #: they had the whole quota.
+    market_data: MarketDataService
     #: Job outcomes and durations. The worker serves no HTTP, so these are
     #: written to a file the scheduler's own metrics endpoint would otherwise
     #: have to exist to expose -- see `metrics_path`.
@@ -76,10 +86,16 @@ class JobContext:
             settings=settings,
             postgres=PostgresDatabase(settings.postgres),
             mongo=MongoDatabase(settings.mongo),
+            market_data=MarketDataService(
+                registry=build_registry(settings),
+                cache=ResponseCache(),
+                settings=settings.marketdata,
+            ),
         )
 
     async def aclose(self) -> None:
         """Release every pooled connection."""
+        await self.market_data.aclose()
         await self.postgres.dispose()
         await self.mongo.close()
 
@@ -103,6 +119,37 @@ async def _job_run(context: JobContext, name: str) -> AsyncIterator[None]:
         log.exception("job_failed", duration_seconds=round(timer.elapsed, 2))
     else:
         context.metrics.observe_job(job=name, outcome="succeeded", duration_seconds=timer.elapsed)
+
+
+async def sync_universe_job(context: JobContext) -> None:
+    """Refresh the browsable exchange universe from the provider.
+
+    Runs before price ingestion in the daily order, so a symbol that listed
+    today is searchable on the same run that first prices it.
+    """
+    log = logger.bind(job="sync_universe")
+    try:
+        async with context.postgres.session() as session:
+            service = UniverseSyncService(
+                market_data=context.market_data,
+                listings=ListingRepository(session),
+            )
+            report = await service.sync()
+
+        if report.succeeded:
+            log.info(
+                "job_succeeded",
+                fetched=report.fetched,
+                written=report.written,
+                deactivated=report.deactivated,
+            )
+        else:
+            # Not an exception: a provider without the universe capability is a
+            # configuration state, and raising would retry it every tick
+            # forever without the situation ever changing.
+            log.warning("job_skipped", reason=report.error)
+    except Exception:
+        log.exception("job_failed")
 
 
 async def ingest_prices_job(context: JobContext) -> None:

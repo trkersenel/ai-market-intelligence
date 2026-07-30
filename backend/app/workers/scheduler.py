@@ -39,6 +39,7 @@ from app.workers.jobs import (
     ingest_news_job,
     ingest_prices_job,
     score_sentiment_job,
+    sync_universe_job,
 )
 
 logger = get_logger(__name__)
@@ -73,6 +74,9 @@ def build_scheduler(settings: Settings, context: JobContext) -> AsyncIOScheduler
     )
 
     schedule = (
+        # First: everything downstream is keyed on symbols, and a listing the
+        # platform has never heard of cannot be priced or analysed.
+        JobSpec("sync_universe", sync_universe_job, settings.scheduler.universe_sync_cron),
         JobSpec("ingest_prices", ingest_prices_job, settings.scheduler.price_ingestion_cron),
         JobSpec("ingest_news", ingest_news_job, settings.scheduler.news_ingestion_cron),
         # Deliberately 30 minutes after price ingestion: features are derived

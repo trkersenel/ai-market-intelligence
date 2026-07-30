@@ -227,6 +227,15 @@ class MarketDataService:
         """Cache hit, miss and coalesce counts."""
         return self._cache.stats
 
+    async def aclose(self) -> None:
+        """Release every provider's transport.
+
+        Exposed here so callers never reach past the facade to the registry --
+        the whole point of this class is that nothing above it knows a registry
+        exists.
+        """
+        await self._registry.aclose()
+
     def invalidate_symbol(self, symbol: str) -> int:
         """Drop every cached entry for one symbol.
 

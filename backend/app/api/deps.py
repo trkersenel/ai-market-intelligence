@@ -23,11 +23,13 @@ from app.core.exceptions import AuthenticationError, ServiceUnavailableError
 from app.core.security import TokenType, decode_token
 from app.db.mongo import MongoDatabase
 from app.db.postgres import PostgresDatabase
+from app.marketdata.service import MarketDataService
 from app.models.user import User
 from app.repositories import (
     AnomalyRepository,
     CompanyRepository,
     DailyPriceRepository,
+    ListingRepository,
     MarketCalendarRepository,
     MarketSummaryRepository,
     PortfolioRepository,
@@ -54,6 +56,7 @@ from app.services.rag import (
     build_llm_client,
     build_vector_store,
 )
+from app.services.universe import UniverseSyncService
 
 #: `auto_error=False` so a missing header reaches our own dependency and is
 #: translated into the platform's error envelope, rather than FastAPI emitting a
@@ -133,6 +136,23 @@ def get_health_service(
 ) -> HealthService:
     """Assemble the health service from its infrastructure dependencies."""
     return HealthService(postgres=postgres, mongo=mongo)
+
+
+def get_market_data(request: Request) -> MarketDataService:
+    """Return the process-wide market data facade built during startup."""
+    service: MarketDataService | None = getattr(request.app.state, "market_data", None)
+    if service is None:  # pragma: no cover - indicates a lifespan wiring bug
+        msg = "Market data is not initialised."
+        raise ServiceUnavailableError(msg)
+    return service
+
+
+def get_universe_sync_service(
+    market_data: Annotated[MarketDataService, Depends(get_market_data)],
+    listings: Annotated[ListingRepository, Depends(repository_provider(ListingRepository))],
+) -> UniverseSyncService:
+    """Assemble the universe sync service for on-demand API triggers."""
+    return UniverseSyncService(market_data=market_data, listings=listings)
 
 
 def get_news_repository(
@@ -395,6 +415,8 @@ SettingsDep = Annotated[Settings, Depends(get_app_settings)]
 SessionDep = Annotated[AsyncSession, Depends(get_db_session)]
 MongoDep = Annotated[MongoDatabase, Depends(get_mongo)]
 HealthServiceDep = Annotated[HealthService, Depends(get_health_service)]
+MarketDataDep = Annotated[MarketDataService, Depends(get_market_data)]
+UniverseSyncDep = Annotated[UniverseSyncService, Depends(get_universe_sync_service)]
 NewsRepoDep = Annotated[NewsRepository, Depends(get_news_repository)]
 PriceIngestionDep = Annotated[PriceIngestionService, Depends(get_price_ingestion_service)]
 FeatureServiceDep = Annotated[FeatureEngineeringService, Depends(get_feature_service)]
@@ -414,6 +436,7 @@ CorrelationEngineDep = Annotated[CorrelationEngine, Depends(get_correlation_engi
 # rather than constructing repositories, so a test can swap any one of them for
 # a fake through `app.dependency_overrides`.
 CompanyRepoDep = Annotated[CompanyRepository, Depends(repository_provider(CompanyRepository))]
+ListingRepoDep = Annotated[ListingRepository, Depends(repository_provider(ListingRepository))]
 TickerRepoDep = Annotated[TickerRepository, Depends(repository_provider(TickerRepository))]
 PriceRepoDep = Annotated[DailyPriceRepository, Depends(repository_provider(DailyPriceRepository))]
 IndicatorRepoDep = Annotated[

@@ -397,6 +397,12 @@ class SchedulerSettings(BaseSettings):
     timezone: str = "UTC"
 
     #: 22:30 UTC on weekdays -- after the US close, before Asian markets open.
+    #: 22:00 UTC on weekdays, half an hour before price ingestion. New listings
+    #: are rare and delistings rarer, so this is far more frequent than the data
+    #: changes -- but it runs first so a symbol that listed today is searchable
+    #: on the same night it is first priced.
+    universe_sync_cron: str = "0 22 * * mon-fri"
+
     price_ingestion_cron: str = "30 22 * * mon-fri"
     #: Hourly: news breaks continuously and the correlation engine wants it
     #: available before the next price ingestion runs.

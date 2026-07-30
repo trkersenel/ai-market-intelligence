@@ -19,6 +19,7 @@ from app.models.enums import (
     Sentiment,
     Severity,
 )
+from app.models.listing import Listing
 from app.models.market import DailyMarketSummary, MarketCalendar
 from app.models.price import DailyPrice, TechnicalIndicator
 from app.models.user import (
@@ -41,6 +42,7 @@ __all__ = [
     "DetectionMethod",
     "Direction",
     "EcosystemTag",
+    "Listing",
     "MarketCalendar",
     "MarketRegime",
     "Portfolio",
