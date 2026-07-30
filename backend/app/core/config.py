@@ -273,6 +273,48 @@ class LlmSettings(BaseSettings):
     correlation_lookahead_hours: Annotated[int, Field(ge=0)] = 24
 
 
+class MarketDataSettings(BaseSettings):
+    """Market data providers and their limits.
+
+    Provider selection is configuration, never code. The application asks the
+    registry for a capability and gets whichever configured provider serves it,
+    so adding or swapping a vendor is a key and an adapter -- not a change to
+    any endpoint, hook or component.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="MARKETDATA_", extra="ignore")
+
+    #: Reference data, quotes, fundamentals, news. Free tier verified to serve
+    #: universe, profile+logo, quote, metrics, statements, ratings, insider
+    #: transactions, earnings and news -- but not candles, targets or dividends.
+    finnhub_api_key: SecretStr | None = None
+    finnhub_base_url: str = "https://finnhub.io/api/v1"
+    #: Held under the documented 60/min so a burst cannot trip the limit; a 429
+    #: costs far more than the margin gives up.
+    finnhub_rate_limit: Annotated[float, Field(gt=0)] = 0.9
+
+    #: Historical bars for charting, which Finnhub's free tier does not serve.
+    twelvedata_api_key: SecretStr | None = None
+    twelvedata_base_url: str = "https://api.twelvedata.com"
+    #: 8 requests/minute on the free plan.
+    twelvedata_rate_limit: Annotated[float, Field(gt=0)] = 0.12
+
+    #: Exchange whose universe is synced.
+    universe_exchange: str = "NASDAQ"
+    #: Symbols the universe sync writes per batch.
+    universe_batch_size: Annotated[int, Field(ge=50, le=5000)] = 500
+
+    #: Cache lifetimes, in seconds. A quote is stale in a second; a company's
+    #: IPO date is not. One TTL for everything would either hammer the provider
+    #: or serve yesterday's price.
+    quote_ttl_seconds: Annotated[int, Field(ge=1)] = 15
+    profile_ttl_seconds: Annotated[int, Field(ge=60)] = 86_400
+    metrics_ttl_seconds: Annotated[int, Field(ge=60)] = 3_600
+    financials_ttl_seconds: Annotated[int, Field(ge=60)] = 86_400
+    candles_ttl_seconds: Annotated[int, Field(ge=60)] = 900
+    news_ttl_seconds: Annotated[int, Field(ge=60)] = 900
+
+
 class AnalysisSettings(BaseSettings):
     """Sentiment and anomaly-detection parameters."""
 
@@ -387,6 +429,7 @@ class Settings(BaseSettings):
     ingestion: IngestionSettings = Field(default_factory=IngestionSettings)
     analysis: AnalysisSettings = Field(default_factory=AnalysisSettings)
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
+    marketdata: MarketDataSettings = Field(default_factory=MarketDataSettings)
     llm: LlmSettings = Field(default_factory=LlmSettings)
     scheduler: SchedulerSettings = Field(default_factory=SchedulerSettings)
 
