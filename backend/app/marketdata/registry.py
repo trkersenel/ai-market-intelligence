@@ -118,6 +118,7 @@ def build_registry(settings: Settings) -> ProviderRegistry:
     optional credential is a platform nobody can run.
     """
     from app.marketdata.providers.finnhub import FinnhubProvider  # noqa: PLC0415
+    from app.marketdata.providers.twelvedata import TwelveDataProvider  # noqa: PLC0415
 
     market = settings.marketdata
     providers: list[MarketDataProvider] = []
@@ -130,6 +131,21 @@ def build_registry(settings: Settings) -> ProviderRegistry:
             provider="finnhub",
             missing="MARKETDATA_FINNHUB_API_KEY",
             consequence="no universe, profiles, logos, quotes or fundamentals",
+        )
+
+    # Registered after Finnhub deliberately. Twelve Data's quote is richer --
+    # it carries average volume and the 52-week range in one response -- but the
+    # free plan allows 8 requests a minute against Finnhub's 60. Finnhub serves
+    # quotes; Twelve Data serves the bars Finnhub refuses. Reordering these two
+    # lines is the entire change needed to swap that decision.
+    if TwelveDataProvider.is_configured(market):
+        providers.append(TwelveDataProvider(market, settings.ingestion))
+    else:
+        logger.warning(
+            "provider_unconfigured",
+            provider="twelvedata",
+            missing="MARKETDATA_TWELVEDATA_API_KEY",
+            consequence="no price charts",
         )
 
     _warn_about_gaps(market, providers)

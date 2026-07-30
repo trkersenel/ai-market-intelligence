@@ -6,5 +6,6 @@ imports a concrete adapter -- callers resolve providers through the registry.
 """
 
 from app.marketdata.providers.finnhub import FinnhubProvider
+from app.marketdata.providers.twelvedata import TwelveDataProvider
 
-__all__ = ["FinnhubProvider"]
+__all__ = ["FinnhubProvider", "TwelveDataProvider"]
