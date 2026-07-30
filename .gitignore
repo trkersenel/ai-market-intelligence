@@ -27,3 +27,10 @@ dist/
 .idea/
 .vscode/
 *.log
+
+# Next.js frontend
+web/node_modules/
+web/.next/
+web/out/
+web/.env*.local
+web/next-env.d.ts
