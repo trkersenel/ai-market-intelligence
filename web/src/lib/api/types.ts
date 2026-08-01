@@ -204,3 +204,84 @@ export interface ApiErrorBody {
     details?: Record<string, unknown>;
   };
 }
+
+/* --- Knowledge graph ------------------------------------------------------ */
+
+export type EntityKind =
+  | "company"
+  | "organisation"
+  | "technology"
+  | "product"
+  | "ai_model"
+  | "facility"
+  | "country"
+  | "person";
+
+/** How the platform knows a relationship exists. Rendered, never hidden. */
+export type EvidenceSource =
+  | "curated"
+  | "filing"
+  | "press_release"
+  | "news"
+  | "inferred";
+
+export interface EntityNode {
+  slug: string;
+  name: string;
+  kind: EntityKind;
+  symbol: string | null;
+  country: string | null;
+  tags: string[];
+  summary: string | null;
+}
+
+export interface RelationshipEdge {
+  source: string;
+  target: string;
+  kind: string;
+  description: string | null;
+  /** How much the relationship matters to the source, 0-1. Drives line weight. */
+  weight: number;
+  /** How sure the platform is it exists at all, 0-1. Drives opacity. */
+  confidence: number;
+  evidence: EvidenceSource;
+  citation: string | null;
+  valid_from: string | null;
+  valid_to: string | null;
+}
+
+export interface EcosystemGraph {
+  root: string;
+  nodes: EntityNode[];
+  edges: RelationshipEdge[];
+}
+
+export interface ImpactPath {
+  /** Readable chain: "Microsoft → buys from → NVIDIA → is manufactured by → TSMC". */
+  steps: string[];
+  score: number;
+  confidence: number;
+}
+
+export interface ImpactedEntity {
+  entity: EntityNode;
+  score: number;
+  confidence: number;
+  direction: "benefits" | "at_risk" | "neutral";
+  paths: ImpactPath[];
+}
+
+export interface ImpactAnalysis {
+  origin: string;
+  magnitude: number;
+  winners: ImpactedEntity[];
+  losers: ImpactedEntity[];
+  /** Always "graph_propagation": derived from curated edges, not predicted. */
+  method: string;
+}
+
+export interface GraphStats {
+  entities: number;
+  relationships: number;
+  by_kind: Record<string, number>;
+}

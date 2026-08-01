@@ -21,8 +21,12 @@ import type {
   InsiderTransaction,
   KeyMetrics,
   ListingSummary,
+  EcosystemGraph,
+  GraphStats,
+  ImpactAnalysis,
   ProviderNewsItem,
   Quote,
+  RelationshipEdge,
   UniverseStats,
 } from "./types";
 
@@ -237,6 +241,80 @@ export function useCompanyReport(symbol: string, options?: Options<CompanyReport
     queryFn: ({ signal }) => api.get<CompanyReport>(`/market/${symbol}/report`, { signal }),
     staleTime: 12 * HOUR,
     retry: false,
+    ...options,
+  });
+}
+
+/* --- Knowledge graph ------------------------------------------------------ */
+
+export const graphKeys = {
+  stats: () => ["graph", "stats"] as const,
+  entities: (tags: string[]) => ["graph", "entities", ...tags] as const,
+  ecosystem: (id: string, depth: number) => ["graph", "ecosystem", id, depth] as const,
+  supplyChain: (id: string) => ["graph", "supply-chain", id] as const,
+  impact: (id: string, magnitude: number) => ["graph", "impact", id, magnitude] as const,
+};
+
+/**
+ * The graph changes only when the curated seed does, which is a deploy. These
+ * are effectively static within a session, so they are fetched once and kept.
+ */
+const GRAPH_STALE_TIME = 30 * MINUTE;
+
+export function useGraphStats(options?: Options<GraphStats>) {
+  return useQuery({
+    queryKey: graphKeys.stats(),
+    queryFn: ({ signal }) => api.get<GraphStats>("/ecosystem/stats", { signal }),
+    staleTime: GRAPH_STALE_TIME,
+    retry,
+    ...options,
+  });
+}
+
+export function useEcosystem(
+  identifier: string,
+  depth: number,
+  options?: Options<EcosystemGraph>,
+) {
+  return useQuery({
+    queryKey: graphKeys.ecosystem(identifier, depth),
+    queryFn: ({ signal }) =>
+      api.get<EcosystemGraph>(`/ecosystem/${identifier}`, { params: { depth }, signal }),
+    staleTime: GRAPH_STALE_TIME,
+    // Keeps the previous depth on screen while the next loads, so widening the
+    // view redraws rather than blanking the canvas.
+    placeholderData: (previous) => previous,
+    retry,
+    ...options,
+  });
+}
+
+export function useSupplyChain(identifier: string, options?: Options<RelationshipEdge[]>) {
+  return useQuery({
+    queryKey: graphKeys.supplyChain(identifier),
+    queryFn: ({ signal }) =>
+      api.get<RelationshipEdge[]>(`/ecosystem/${identifier}/supply-chain`, { signal }),
+    staleTime: GRAPH_STALE_TIME,
+    retry,
+    ...options,
+  });
+}
+
+export function useImpact(
+  identifier: string,
+  magnitude: number,
+  options?: Options<ImpactAnalysis>,
+) {
+  return useQuery({
+    queryKey: graphKeys.impact(identifier, magnitude),
+    queryFn: ({ signal }) =>
+      api.get<ImpactAnalysis>(`/ecosystem/${identifier}/impact`, {
+        params: { magnitude, limit: 8 },
+        signal,
+      }),
+    staleTime: GRAPH_STALE_TIME,
+    placeholderData: (previous) => previous,
+    retry,
     ...options,
   });
 }

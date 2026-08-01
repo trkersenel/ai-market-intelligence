@@ -12,7 +12,12 @@ import { Search, Moon, Sun, LineChart } from "lucide-react";
 import { CommandPalette } from "@/components/search/command-palette";
 import { cn } from "@/lib/cn";
 
-const NAV = [{ href: "/", label: "Dashboard" }] as const;
+const NAV = [
+  { href: "/", label: "Dashboard" },
+  // Rooted at NVIDIA: it is the node with the most edges, so it is the most
+  // informative place to land someone who has not chosen a company yet.
+  { href: "/ecosystem/nvidia", label: "Ecosystem" },
+] as const;
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -43,7 +48,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <nav className="hidden items-center gap-1 sm:flex">
             {NAV.map((item) => {
               const active =
-                item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+                item.href === "/" ? pathname === "/" : pathname.startsWith("/ecosystem");
               return (
                 <Link
                   key={item.href}

@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Activity, ExternalLink, Info } from "lucide-react";
 import { PriceChart } from "@/components/chart/price-chart";
 import { ReportPanel } from "@/components/symbol/report-panel";
+import { EcosystemLink } from "@/components/graph/ecosystem-link";
 import {
   EarningsPanel,
   InsidersPanel,
@@ -103,6 +104,7 @@ export function SymbolView({ symbol }: { symbol: string }) {
 
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
+          <EcosystemLink symbol={symbol} />
           <ReportPanel symbol={symbol} />
           <MetricsPanel symbol={symbol} />
           <EarningsPanel symbol={symbol} />
