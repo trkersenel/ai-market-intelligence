@@ -18,6 +18,7 @@ from app.api.v1.endpoints import (
     auth,
     chat,
     companies,
+    ecosystem,
     indicators,
     ingestion,
     market,
@@ -43,6 +44,7 @@ api_router.include_router(news.router, prefix="/news")
 api_router.include_router(search.router, prefix="/search")
 api_router.include_router(universe.router, prefix="/universe")
 api_router.include_router(market.router, prefix="/market")
+api_router.include_router(ecosystem.router, prefix="/ecosystem")
 api_router.include_router(watchlists.router, prefix="/watchlists")
 api_router.include_router(watchlists.portfolios_router, prefix="/portfolios")
 api_router.include_router(stream.router, prefix="/stream")

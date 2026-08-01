@@ -15,10 +15,14 @@ from app.models.enums import (
     DetectionMethod,
     Direction,
     EcosystemTag,
+    EntityKind,
+    EvidenceSource,
     MarketRegime,
+    RelationKind,
     Sentiment,
     Severity,
 )
+from app.models.graph import Entity, Relationship
 from app.models.listing import Listing
 from app.models.market import DailyMarketSummary, MarketCalendar
 from app.models.price import DailyPrice, TechnicalIndicator
@@ -42,11 +46,16 @@ __all__ = [
     "DetectionMethod",
     "Direction",
     "EcosystemTag",
+    "Entity",
+    "EntityKind",
+    "EvidenceSource",
     "Listing",
     "MarketCalendar",
     "MarketRegime",
     "Portfolio",
     "PortfolioPosition",
+    "RelationKind",
+    "Relationship",
     "Sentiment",
     "Severity",
     "TechnicalIndicator",

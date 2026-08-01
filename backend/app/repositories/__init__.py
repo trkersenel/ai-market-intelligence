@@ -8,6 +8,7 @@ in-memory fake exposing the same method surface.
 from app.repositories.anomaly import AnomalyRepository
 from app.repositories.base import BaseRepository
 from app.repositories.company import CompanyRepository, TickerRepository
+from app.repositories.graph import EntityRepository, RelationshipRepository
 from app.repositories.listing import ListingRepository
 from app.repositories.market import MarketCalendarRepository, MarketSummaryRepository
 from app.repositories.price import DailyPriceRepository, TechnicalIndicatorRepository
@@ -22,10 +23,12 @@ __all__ = [
     "BaseRepository",
     "CompanyRepository",
     "DailyPriceRepository",
+    "EntityRepository",
     "ListingRepository",
     "MarketCalendarRepository",
     "MarketSummaryRepository",
     "PortfolioRepository",
+    "RelationshipRepository",
     "TechnicalIndicatorRepository",
     "TickerRepository",
     "UserRepository",

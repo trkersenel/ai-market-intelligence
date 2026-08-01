@@ -136,3 +136,91 @@ class EcosystemTag(StrEnum):
     HYPERSCALER = "hyperscaler"
     POWER_INFRASTRUCTURE = "power_infrastructure"
     EDA = "eda"
+
+
+class EntityKind(StrEnum):
+    """What a knowledge-graph node represents.
+
+    Wider than "company" on purpose. The AI ecosystem's most consequential
+    actors include one that has never been listed (OpenAI), one that is a
+    manufacturing process rather than an organisation (EUV lithography), and one
+    that is a building (TSMC Arizona). A vocabulary restricted to issuers could
+    not express why any of the three matters.
+    """
+
+    COMPANY = "company"
+    #: Privately held or non-corporate: research labs, foundations, consortia.
+    ORGANISATION = "organisation"
+    #: A capability or process: EUV lithography, HBM, CoWoS packaging.
+    TECHNOLOGY = "technology"
+    #: A specific shipping thing: H100, MI300X, N3 process node.
+    PRODUCT = "product"
+    #: A released model: GPT-5, Claude, Llama.
+    AI_MODEL = "ai_model"
+    #: A physical site: a fab, a data centre campus.
+    FACILITY = "facility"
+    COUNTRY = "country"
+    PERSON = "person"
+
+
+class RelationKind(StrEnum):
+    """How two entities are connected.
+
+    Directed unless listed in :data:`SYMMETRIC_RELATIONS`. Direction is the
+    difference between "TSMC supplies NVIDIA" and the reverse, which is the
+    whole point of the edge.
+    """
+
+    #: A provides physical inputs to B. The backbone of the supply chain.
+    SUPPLIES = "supplies"
+    #: A fabricates B's designs. Narrower than SUPPLIES and worth its own type,
+    #: because foundry concentration is the ecosystem's central fragility.
+    MANUFACTURES = "manufactures"
+    #: A buys from B. The inverse of SUPPLIES, stored when the customer side is
+    #: what the source disclosed.
+    CUSTOMER_OF = "customer_of"
+    COMPETES_WITH = "competes_with"
+    PARTNERS_WITH = "partners_with"
+    #: A relies on B without a direct commercial relationship -- the
+    #: second-order exposure that makes an ecosystem map worth drawing.
+    DEPENDS_ON = "depends_on"
+    USES = "uses"
+    PRODUCES = "produces"
+    INVESTS_IN = "invests_in"
+    ACQUIRED = "acquired"
+    #: A runs B's technology at scale: a cloud deploying accelerators.
+    DEPLOYS = "deploys"
+    #: A operates or owns B, for facilities and subsidiaries.
+    OPERATES = "operates"
+    #: A is located in B, for facilities and countries.
+    LOCATED_IN = "located_in"
+
+
+#: Relations where direction carries no meaning. Stored once and traversed both
+#: ways; storing both directions would double the rows and let the two copies
+#: drift apart, which is worse than the join.
+SYMMETRIC_RELATIONS: frozenset[RelationKind] = frozenset(
+    {RelationKind.COMPETES_WITH, RelationKind.PARTNERS_WITH}
+)
+
+
+class EvidenceSource(StrEnum):
+    """Where a claim came from, and therefore how far to trust it.
+
+    Ordered loosely by reliability. The UI renders the difference rather than
+    presenting every edge as equally established -- a platform that says
+    "NVIDIA depends on TSMC" without saying how it knows is asking to be
+    believed rather than checked.
+    """
+
+    #: Hand-entered from a primary source, with the citation recorded.
+    CURATED = "curated"
+    #: Extracted from an SEC filing.
+    FILING = "filing"
+    #: Extracted from a company's own announcement.
+    PRESS_RELEASE = "press_release"
+    #: Extracted from journalism.
+    NEWS = "news"
+    #: Proposed by a language model from text. The lowest tier, and the reason
+    #: confidence is a column: these arrive unverified and must look it.
+    INFERRED = "inferred"

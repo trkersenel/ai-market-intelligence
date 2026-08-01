@@ -29,10 +29,12 @@ from app.repositories import (
     AnomalyRepository,
     CompanyRepository,
     DailyPriceRepository,
+    EntityRepository,
     ListingRepository,
     MarketCalendarRepository,
     MarketSummaryRepository,
     PortfolioRepository,
+    RelationshipRepository,
     TechnicalIndicatorRepository,
     TickerRepository,
     UserRepository,
@@ -48,6 +50,7 @@ from app.services.anomalies import AnomalyDetectionService
 from app.services.anomalies.detectors import IsolationForestDetector, ZScoreDetector
 from app.services.auth_service import AuthService
 from app.services.features import FeatureEngineeringService
+from app.services.graph import GraphService
 from app.services.health_service import HealthService
 from app.services.ingestion import PriceIngestionService
 from app.services.portfolio_service import PortfolioService, WatchlistService
@@ -306,6 +309,16 @@ async def get_search_service(
     )
 
 
+def get_graph_service(
+    entities: Annotated[EntityRepository, Depends(repository_provider(EntityRepository))],
+    relationships: Annotated[
+        RelationshipRepository, Depends(repository_provider(RelationshipRepository))
+    ],
+) -> GraphService:
+    """Assemble the knowledge graph service."""
+    return GraphService(entities=entities, relationships=relationships)
+
+
 def get_ai_report_repository(
     mongo: Annotated[MongoDatabase, Depends(get_mongo)],
 ) -> AiReportRepository:
@@ -470,6 +483,7 @@ HealthServiceDep = Annotated[HealthService, Depends(get_health_service)]
 MarketDataDep = Annotated[MarketDataService, Depends(get_market_data)]
 UniverseSyncDep = Annotated[UniverseSyncService, Depends(get_universe_sync_service)]
 ReportServiceDep = Annotated[CompanyReportService, Depends(get_report_service)]
+GraphServiceDep = Annotated[GraphService, Depends(get_graph_service)]
 NewsRepoDep = Annotated[NewsRepository, Depends(get_news_repository)]
 PriceIngestionDep = Annotated[PriceIngestionService, Depends(get_price_ingestion_service)]
 FeatureServiceDep = Annotated[FeatureEngineeringService, Depends(get_feature_service)]
