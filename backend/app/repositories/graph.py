@@ -14,10 +14,11 @@ from dataclasses import dataclass
 from datetime import date
 
 from sqlalchemy import Select, func, or_, select, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import aliased
 
-from app.models.enums import SYMMETRIC_RELATIONS, EntityKind, RelationKind
-from app.models.graph import Entity, Relationship
+from app.models.enums import SYMMETRIC_RELATIONS, EntityKind, ProposalStatus, RelationKind
+from app.models.graph import Entity, Relationship, RelationshipProposal
 from app.repositories.base import BaseRepository
 
 
@@ -42,6 +43,20 @@ class Edge:
     def is_symmetric(self) -> bool:
         """Whether direction carries meaning for this relation kind."""
         return self.relationship.kind in SYMMETRIC_RELATIONS
+
+
+@dataclass(frozen=True, slots=True)
+class ProposalRow:
+    """One proposal with both endpoints resolved.
+
+    Its own type rather than reusing :class:`Edge`: a proposal has no
+    provenance columns or validity window -- it has a quote and a status
+    instead -- and pretending otherwise pushes a union into every caller.
+    """
+
+    proposal: RelationshipProposal
+    source: Entity
+    target: Entity
 
 
 class EntityRepository(BaseRepository[Entity, int]):
@@ -244,3 +259,45 @@ class RelationshipRepository(BaseRepository[Relationship, int]):
         """Return how many edges the graph holds."""
         result = await self._session.execute(select(func.count()).select_from(Relationship))
         return int(result.scalar_one())
+
+
+class ProposalRepository(BaseRepository[RelationshipProposal, int]):
+    """Reads and writes over model-proposed edges awaiting review."""
+
+    model = RelationshipProposal
+
+    async def upsert_many(self, rows: Sequence[dict[str, object]]) -> int:
+        """Store proposals, ignoring ones already recorded.
+
+        ``DO NOTHING`` rather than ``DO UPDATE``: the natural key includes the
+        source document, so a collision means this exact claim from this exact
+        article was already proposed. Overwriting would silently reset a
+        decision a reviewer has already made.
+        """
+        if not rows:
+            return 0
+        statement = pg_insert(RelationshipProposal).values(list(rows))
+        return await self._execute_dml(
+            statement.on_conflict_do_nothing(constraint="uq_proposal_natural")
+        )
+
+    async def list_pending(self, *, limit: int = 50) -> list[ProposalRow]:
+        """Return proposals awaiting review, most confident first."""
+        source = aliased(Entity, name="p_src")
+        target = aliased(Entity, name="p_tgt")
+        result = await self._session.execute(
+            select(RelationshipProposal, source, target)
+            .join(source, RelationshipProposal.source_id == source.id)
+            .join(target, RelationshipProposal.target_id == target.id)
+            .where(RelationshipProposal.status == ProposalStatus.PENDING)
+            .order_by(RelationshipProposal.confidence.desc(), RelationshipProposal.created_at)
+            .limit(limit)
+        )
+        return [ProposalRow(proposal, src, tgt) for proposal, src, tgt in result.all()]
+
+    async def counts_by_status(self) -> dict[str, int]:
+        """Return how many proposals sit in each state."""
+        result = await self._session.execute(
+            select(RelationshipProposal.status, func.count()).group_by(RelationshipProposal.status)
+        )
+        return {status.value: count for status, count in result.all()}

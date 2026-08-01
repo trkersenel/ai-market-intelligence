@@ -10,6 +10,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from app.core.logging import get_logger
 from app.models.graph import Entity, Relationship
 from app.repositories.graph import EntityRepository
+from app.services.graph.aliases import ALIASES
 from app.services.graph.seed import ENTITIES, RELATIONS
 
 logger = get_logger(__name__)
@@ -52,6 +53,7 @@ class GraphSeeder:
                 symbol=entity.symbol,
                 country=entity.country,
                 tags=list(entity.tags),
+                aliases=list(ALIASES.get(entity.slug, entity.aliases)),
                 summary=entity.summary,
             )
             await self._session.execute(
@@ -59,7 +61,15 @@ class GraphSeeder:
                     index_elements=[Entity.slug],
                     set_={
                         column: statement.excluded[column]
-                        for column in ("name", "kind", "symbol", "country", "tags", "summary")
+                        for column in (
+                            "name",
+                            "kind",
+                            "symbol",
+                            "country",
+                            "tags",
+                            "aliases",
+                            "summary",
+                        )
                     },
                 )
             )

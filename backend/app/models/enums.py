@@ -224,3 +224,13 @@ class EvidenceSource(StrEnum):
     #: Proposed by a language model from text. The lowest tier, and the reason
     #: confidence is a column: these arrive unverified and must look it.
     INFERRED = "inferred"
+
+
+class ProposalStatus(StrEnum):
+    """Where a model-proposed edge sits in review."""
+
+    PENDING = "pending"
+    #: Copied into the graph as an INFERRED edge. The proposal row is kept so
+    #: the decision, and the sentence behind it, remain auditable.
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"

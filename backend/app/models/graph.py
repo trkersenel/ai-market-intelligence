@@ -47,7 +47,13 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, IntIdMixin, TimestampMixin
-from app.models.enums import EntityKind, EvidenceSource, RelationKind, pg_enum
+from app.models.enums import (
+    EntityKind,
+    EvidenceSource,
+    ProposalStatus,
+    RelationKind,
+    pg_enum,
+)
 
 
 class Entity(IntIdMixin, TimestampMixin, Base):
@@ -85,6 +91,13 @@ class Entity(IntIdMixin, TimestampMixin, Base):
     #: "networking", "eda", "foundation-model". A GIN-indexed array so
     #: "every cooling company" is one query with no join table.
     tags: Mapped[list[str]] = mapped_column(ARRAY(String(40)), default=list, server_default="{}")
+
+    #: Other names this entity is called in the wild. "Taiwan Semiconductor
+    #: Manufacturing", "TSMC" and "tsmc" are the same company, and a mention
+    #: detector matching only the canonical name would miss most of the corpus.
+    aliases: Mapped[list[str]] = mapped_column(
+        ARRAY(String(120)), default=list, server_default="{}"
+    )
 
     summary: Mapped[str | None] = mapped_column(Text)
 
@@ -167,3 +180,51 @@ class Relationship(IntIdMixin, TimestampMixin, Base):
     def __repr__(self) -> str:
         """Return a debugging representation."""
         return f"<Relationship {self.source_id}-[{self.kind.value}]->{self.target_id}>"
+
+
+class RelationshipProposal(IntIdMixin, TimestampMixin, Base):
+    """A candidate edge a model proposed, awaiting review.
+
+    Deliberately *not* the ``relationship`` table. The curated graph is the
+    thing inferences get checked against, and it stops being that the moment
+    unreviewed inferences are written into it. Accepting a proposal copies it
+    across; until then it is visible, queryable and clearly marked, but it does
+    not participate in traversal or impact propagation.
+
+    The quote is the row's justification and is stored verbatim. It was already
+    verified to appear in the source document before the row was written, so a
+    reviewer is checking a judgement -- "does this sentence really establish a
+    supply relationship" -- rather than checking whether the model made it up.
+    """
+
+    __table_args__ = (
+        # One open proposal per claim. Re-running extraction over a corpus that
+        # keeps growing must not accumulate duplicates of the same sentence.
+        UniqueConstraint(
+            "source_id", "target_id", "kind", "document_id", name="uq_proposal_natural"
+        ),
+        CheckConstraint("source_id <> target_id", name="no_self_proposal"),
+        Index("ix_proposal_status_created", "status", "created_at"),
+        {"comment": "Model-proposed edges awaiting human review."},
+    )
+
+    source_id: Mapped[int] = mapped_column(ForeignKey("entity.id", ondelete="CASCADE"), index=True)
+    target_id: Mapped[int] = mapped_column(ForeignKey("entity.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[RelationKind] = mapped_column(pg_enum(RelationKind, "relation_kind"))
+
+    confidence: Mapped[float] = mapped_column(Float, default=0.5, server_default="0.5")
+    status: Mapped[ProposalStatus] = mapped_column(
+        pg_enum(ProposalStatus, "proposal_status"),
+        default=ProposalStatus.PENDING,
+    )
+
+    #: The verbatim span of the source that supports the claim, checked to be
+    #: present in it before this row was created.
+    quote: Mapped[str] = mapped_column(Text)
+    document_id: Mapped[str] = mapped_column(String(64), index=True)
+    document_title: Mapped[str | None] = mapped_column(Text)
+    document_url: Mapped[str | None] = mapped_column(Text)
+
+    def __repr__(self) -> str:
+        """Return a debugging representation."""
+        return f"<RelationshipProposal {self.source_id}-[{self.kind.value}]->{self.target_id}>"

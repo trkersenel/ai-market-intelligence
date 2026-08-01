@@ -43,6 +43,10 @@ class SeedEntity:
     country: str | None = None
     tags: tuple[str, ...] = ()
     summary: str | None = None
+    #: Other names the press uses. Without these the mention detector finds
+    #: "Taiwan Semiconductor Manufacturing" in an article and matches nothing,
+    #: because the graph calls it TSMC.
+    aliases: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

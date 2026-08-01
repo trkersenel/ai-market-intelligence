@@ -18,11 +18,12 @@ from app.models.enums import (
     EntityKind,
     EvidenceSource,
     MarketRegime,
+    ProposalStatus,
     RelationKind,
     Sentiment,
     Severity,
 )
-from app.models.graph import Entity, Relationship
+from app.models.graph import Entity, Relationship, RelationshipProposal
 from app.models.listing import Listing
 from app.models.market import DailyMarketSummary, MarketCalendar
 from app.models.price import DailyPrice, TechnicalIndicator
@@ -54,8 +55,10 @@ __all__ = [
     "MarketRegime",
     "Portfolio",
     "PortfolioPosition",
+    "ProposalStatus",
     "RelationKind",
     "Relationship",
+    "RelationshipProposal",
     "Sentiment",
     "Severity",
     "TechnicalIndicator",
